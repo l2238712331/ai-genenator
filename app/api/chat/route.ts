@@ -1,395 +1,440 @@
 import { NextRequest } from "next/server";
+import type { Subject, ModuleTab, Difficulty, GradeLevel, QuestionTypeConfig } from "@/types";
 
-const GRADE_LABELS: Record<string, string> = {
-  elementary: "小学生",
-  middle: "初中生",
-  high: "高中生",
+// ════════════════════════════════════════════════════════
+// Edge Runtime 强制流式传输 — 绕过云函数超时限制
+// ════════════════════════════════════════════════════════
+export const runtime = "edge";
+export const dynamic = "force-dynamic";
+
+// ============================================================
+// Constants
+// ============================================================
+
+const GRADE_LABELS: Record<string, string> = { elementary: "小学生", middle: "初中生", high: "高中生" };
+const DIFF_LABELS: Record<string, string> = { story: "故事导入版（低基础）", standard: "标准刷题版（中等生）", competition: "竞赛拔高版（优等生）" };
+const SUBJECT_LABELS: Record<string, string> = {
+  english: "英语", math: "数学", chinese: "语文",
+  physics: "物理", chemistry: "化学", biology: "生物",
+  history: "历史", geography: "地理", politics: "政治",
 };
 
-const DIFF_LABELS: Record<string, string> = {
-  story: "故事导入版（低基础）",
-  standard: "标准刷题版（中等生）",
-  competition: "竞赛拔高版（优等生）",
+/** 科目专属 Prompt 提示语 */
+const SUBJECT_HINTS: Record<string, string> = {
+  english: "注重词汇、语法和语言运用，题干和选项尽量用英文",
+  math: "注重公式推导和严谨的逻辑证明，要求写出完整解题步骤",
+  chinese: "注重语言文字功底、阅读理解和写作表达能力",
+  physics: "注重物理公式推导与实验步骤，结合生活实际场景分析",
+  chemistry: "注重化学方程式书写、实验操作流程和工艺流程分析",
+  biology: "注重图表数据分析、实验设计和生物学原理解释",
+  history: "注重史料解析能力，结合材料与所学知识分析历史事件",
+  geography: "注重读图分析能力和地理原理应用，结合材料与所学知识综合分析",
+  politics: "注重理论联系实际，结合时政材料进行分析论述",
 };
 
 // ============================================================
-// SSE helper
+// Dynamic Prompt Builder
 // ============================================================
-function sendSSE(
-  controller: ReadableStreamDefaultController,
-  data: Record<string, unknown>,
-): void {
-  controller.enqueue(
-    new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`),
-  );
-}
 
-// ============================================================
-// Prompt: 初始生成 — 实操讲义格式（拒绝描述，突出内容本身）
-// ============================================================
-const SYSTEM_PROMPT_GENERATE = `你是一位资深K12教案设计师。你必须生成一份【老师能直接拿上讲台】的实操教案。
-
-【核心排版原则 — 极其重要】
-- 严禁连续输出超过 3 行的纯描述性文字。每段 body 必须用 \`*\` 或 \`-\` 或 \`1.\` 进行列表化、结构化断句。
-- 教案的 body 应该是【老师要讲什么、学生要练什么】，而不是【老师怎么教、学生怎么想】。
-- 不要写"教师可以引导学生思考……"、"通过提问让学生……"这类教学方法描述。改为直接输出教学内容：知识清单、对比表格、例句、练习题。
-- 在关键教学环节中，必须加入【🗣️ Teacher's Script】模块——即老师可以直接念出来的课堂用语（英文 + 中文对照）。
-
-【严格 JSON 格式】只输出 JSON，不要 markdown 或额外文字：
-{
-  "title": "课程标题（含主题·难度·学段）",
-
-  "coreObjectives": {
-    "vocabulary": [
-      { "word": "English Word/Phrase", "meaning": "中文释义" }
-    ],
-    "keyStructures": ["句型1（英文 + 中文翻译）", "句型2（英文 + 中文翻译）"],
-    "keyPoints": "教学重点：一句话概括本课核心知识点（20-30字）",
-    "difficultPoints": "教学难点：学生可能卡住的具体概念或步骤（20-30字）"
-  },
-
-  "sections": [
-    {
-      "emoji": "🎯",
-      "title": "教学环节标题",
-      "body": "该环节的内容主体。每行以 * 或 - 开头，使用 \\n 分隔。严禁超过3行的长段落。示例：\\n* 知识点A：... \\n* 知识点B：... \\n\\n🗣️ Teacher's Script:\\n\\"Good morning class! Today we are going to learn about...\\"\\n（老师可以这样说：今天我们学习……）"
-    }
-  ],
-
-  "exercises": "课后练习（以 - 列表形式，50-100字中文）",
-
-  "quiz": {
-    "studentPaper": "## 📝 随堂测验（Student Version）\\n\\n### 一、单选题\\n\\n1. 题干（英文）\\n   A. 选项A\\n   B. 选项B\\n   C. 选项C\\n   D. 选项D\\n\\n2. ...\\n3. ...\\n\\n### 二、填空题\\n\\n4. 题干 ..."
-  },
-
-  "layeredHomework": {
-    "basic": "## A. 基础巩固题（必做）\\n\\n1. 题1\\n2. 题2",
-    "advanced": "## B. 拓展拔高题（选做）\\n\\n1. 挑战题"
-  },
-
-  "answerKey": {
-    "content": "## 🔑 教师参考答案页\\n\\n### 一、随堂测验答案\\n\\n1. 正确答案：X  解析：...\\n\\n### 二、作业答案\\n\\n#### A. 基础巩固题\\n1. 答案：...\\n\\n#### B. 拓展拔高题\\n1. 答案：..."
-  }
-}
-
-【各模块具体要求】
-
-1. coreObjectives：
-   - vocabulary：列出 5-8 个核心英语单词/短语 + 中文释义
-   - keyStructures：列出 1-2 条重点句型（英文+中文翻译）
-   - keyPoints：一句话，20-30字
-   - difficultPoints：一句话，20-30字
-
-2. sections（4-5个教学环节）：
-   - body 必须是【列表化】的教学内容清单（知识点、例句、对比表），不是教学方法描述
-   - 每个 body 中必须包含至少一个 🗣️ Teacher's Script 模块
-   - Script 格式：英文课堂用语 + （中文翻译）
-   - 故事导入版：内容简单直观，Script 用简单英文
-   - 标准刷题版：知识点系统化，Script 中英对照自然
-   - 竞赛拔高版：知识点有深度，Script 用进阶学术表达
-   - body 总长度 120-250 字
-
-3. quiz.studentPaper：
-   - 3 道英语单选题 + 1 道英语填空题
-   - 题号清晰，A/B/C/D 换行对齐，绝无答案
-
-4. layeredHomework：
-   - A. 基础巩固题（必做）：1-2 题，全体学生适用
-   - B. 拓展拔高题（选做）：1 题，学有余力学生适用
-
-5. answerKey.content：
-   - 以 "## 🔑 教师参考答案页" 开头
-   - 标明每道题的正确答案与核心解析`;
-
-
-// ============================================================
-// Prompt: 平滑微调（simplify / advance）
-// ============================================================
-function buildAdjustPrompt(
-  direction: "simplify" | "advance",
-  previousRawMarkdown: string,
+function buildPrompt(
+  topic: string, subject: Subject, module: ModuleTab,
+  difficulty: Difficulty, grade: GradeLevel, questionConfigs: QuestionTypeConfig[],
+  customQuestion?: { enabled: boolean; description: string; count: number },
 ): string {
-  const intensity = direction === "simplify" ? "降低" : "提升";
-  const range = "约10%~15%";
+  const subjectName = SUBJECT_LABELS[subject];
+  const gradeName = GRADE_LABELS[grade];
+  const diffName = DIFF_LABELS[difficulty];
+  const subjectHint = SUBJECT_HINTS[subject] || "";
 
-  const simplifyStrategy = `
-简化策略：
-- 将进阶词汇替换为更日常、高频的基础同义词
-- 将长难句拆分为更短、更易理解的简单句
-- 随堂测验的英语题干和选项同步简化
-- 分层作业的基础题保持简单，拔高题适当降低思考难度
-- 保持所有教学环节结构和标题不变`;
+  const qDesc = questionConfigs
+    .map((q) => `${q.label} × ${q.count}题`)
+    .join("、");
+  const totalQ = questionConfigs.reduce((s, q) => s + q.count, 0);
 
-  const advanceStrategy = `
-拔高策略：
-- 将基础词汇替换为更书面、进阶的同义词
-- 适当增加复合句和修饰从句
-- 随堂测验的英语题干和选项同步提升（使用更丰富的学术词汇）
-- 分层作业的拔高题增加思考深度
-- 保持所有教学环节结构和标题不变`;
+  // ══════════════════════════════════════════════
+  // 最高防御指令
+  // ══════════════════════════════════════════════
+  const antiLazy = `🚨 最高防偷懒指令：
+1. 绝对禁止"题干内容""选项A""此处省略""略"等占位符，必须编造真实的、符合${gradeName}水平的题目。
+2. 绝对禁止中途截断，必须把全部题目、答案、解析一个字符都不落地输出完毕。
+3. 每题解析必须写完整推理过程，禁止"略""同前""参见教材"。
+4. 题目必须包含具体数字、具体年份、具体人物或化合物名称，不能是抽象空泛的描述。`;
 
-  const strategy = direction === "simplify" ? simplifyStrategy : advanceStrategy;
+  // ══════════════════════════════════════════════
+  // 模块一：实操讲义教案
+  // ══════════════════════════════════════════════
+  if (module === "lesson_plan") {
+    return `你是资深K12${subjectName}教师。请为"${topic}"生成一份纯文本教案（禁止 JSON），直接输出 Markdown。
 
-  return `你是一位资深教案设计师。请对以下已生成的教案进行"平滑难度微调"。
+${antiLazy}
 
-【核心约束 — 极其重要】
-- 保持当前教学主题与核心大纲完全不变
-- 保持 coreObjectives.vocabulary 词汇数量不变，仅替换同义词或调整释义难度
-- 保持 sections 数组的环节数量与标题结构不变
-- 仅在原有内容基础上，将整体词汇和句型难度${intensity}${range}
-- 同时，将随堂测验（quiz）、分层作业（layeredHomework）和答案页（answerKey）的难度同步微调
-- 绝对不能出现跨学段的难度暴跳
-- ${strategy}
+## 基本信息
+- 科目：${subjectName}
+- 学段：${gradeName}
+- 难度：${diffName}
+- 特色要求：${subjectHint}
 
-【当前教案完整内容（含 JSON 结构）】
-${previousRawMarkdown}
+## 输出格式（严格按以下结构输出纯 Markdown）
 
-【输出格式】
-请严格输出一个 JSON 对象，字段结构与原教案完全一致，包含：
-title, coreObjectives, sections, exercises, quiz, layeredHomework, answerKey
+# ${topic} — 授课教案
 
-只输出 JSON，不要输出其他任何内容。`;
+## 🎯 教学目标与核心素养
+用 3-4 句话描述：本节课学生将掌握什么知识与能力，培养什么思维或素养。
+
+## 🔑 核心词汇与重难点
+（使用 Markdown 表格；如为理科则列术语/公式）
+
+| 词汇/术语 | 释义/公式 | 核心用法/示例 |
+|-----------|----------|--------------|
+| term1 | 说明 | 例句或应用场景 |
+| term2 | 说明 | 例句或应用场景 |
+
+**✅ 教学重点：**（20-30字）
+**⚠️ 教学难点：**（20-30字，指出学生易错/困惑之处）
+
+## 💬 逐字稿式授课流程
+
+严格按 [🎯导入 → 📖讲解 → ✋互动 → 🌟总结] 四步展开。
+
+### 🎯 导入环节（5分钟）
+**教师行为：**（1-2句描述）
+**老师说：** "..."
+
+### 📖 新知讲授（15分钟）
+**教师行为：**（1-2句描述）
+**老师说：** "..."
+
+### ✋ 互动练习（8分钟）
+**教师行为：**（1-2句描述）
+**老师说：** "..."
+
+### 🌟 课堂总结（5分钟）
+**教师行为：**（1-2句描述）
+**老师说：** "..."
+`;
+  }
+
+  // ══════════════════════════════════════════════
+  // 模块二：随堂测试与作业
+  // ══════════════════════════════════════════════
+  if (module === "quiz_homework") {
+    return `你是资深K12${subjectName}出题教师。请为"${topic}"生成${totalQ}道随堂测试题。
+
+${antiLazy}
+
+## 要求
+- 题型：${qDesc || "按需出题"}
+- 学段：${gradeName} / 难度：${diffName}
+- 特色：${subjectHint}
+
+## 输出格式（前后彻底分离，纯 Markdown，禁止 JSON 包装）
+
+# ${topic} — 随堂测试与作业
+
+## 📝 第一部分：学生练习卷
+
+### 一、选择题
+（生成真实的${subjectName}试题，选项 A/B/C/D 每行一个，每题注明题号）
+
+**第1题** [题干]
+A. [具体选项]
+B. [具体选项]
+C. [具体选项]
+D. [具体选项]
+
+**第2题** ...
+
+### 二、填空题
+（如需此题型）
+
+**第3题** [题干] ______
+
+### 三、简答题/计算题
+（如需此题型）
+
+**第4题** [题干]
+（答题区：________________________）
+${customQuestion?.enabled && customQuestion.description
+    ? `\n### 四、🎨 自定义附加题\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}\n\n**第5题** [题干]\nA. [选项]  B. [选项]  C. [选项]  D. [选项]\n\n**第6题** ...`
+    : ""}
+
+## 🏡 课后分层作业
+
+### A. 基础巩固（必做）
+**第5题** ...
+
+### B. 拓展拔高（选做 ★）
+**第6题** ...
+
+---
+
+## ⚠️ 第二部分：教师参考答案（请勿发给学生）
+
+### 一、选择题答案
+**第1题** 正确答案：X | 解析：（写清考点与推理过程）
+**第2题** 正确答案：X | 解析：...
+
+### 二、填空题答案
+**第3题** 正确答案：... | 解析：...
+
+### 三、简答题答案与评分标准
+**第4题** 参考答案：... | 评分要点：...
+${customQuestion?.enabled && customQuestion.description
+    ? `\n### 四、🎨 自定义附加题答案\n**第5题** 正确答案：... | 解析：...\n**第6题** ...`
+    : ""}
+
+### 课后作业答案
+**第5题** ... | **第6题** ...
+`;
+  }
+
+  // ══════════════════════════════════════════════
+  // 模块三：弹性定制试卷
+  // ══════════════════════════════════════════════
+  return `你是资深K12${subjectName}命题教师。请为"${topic}"生成一份正式的标准化试卷。
+
+${antiLazy}
+
+## 要求
+- 题型：${qDesc || "按需出题"}
+- 学段：${gradeName} / 难度：${diffName}
+- 特色：${subjectHint}
+
+## 输出格式（正式打印试卷格式，纯 Markdown，禁止 JSON 包装）
+
+# ${subjectName}阶段模拟测试卷
+
+## 📄 试卷信息
+
+> 测试主题：${topic}
+> 姓名：________  班级：________  得分：________
+> 考试时间：90分钟  满分：100分
+
+---
+
+## 一、单项选择题（每题 X 分，共 Y 分）
+
+**1.** [真实题干内容]
+A. [选项]    B. [选项]    C. [选项]    D. [选项]
+
+**2.** [真实题干内容]
+A. [选项]    B. [选项]    C. [选项]    D. [选项]
+
+<!-- 按前端要求的数量生成 -->
+
+## 二、填空题（每题 X 分，共 Y 分）
+
+**3.** [题干] ______
+
+## 三、简答/计算题（每题 X 分，共 Y 分）
+
+**4.** [题干]
+（答题区：________________________）
+
+## 四、材料分析题（每题 X 分，共 Y 分）
+
+**阅读以下材料：**
+[编造不少于 150 字的真实${subjectName}材料文本]
+
+**5.** 根据材料回答：[问题]
+（答题区：________________________）
+${customQuestion?.enabled && customQuestion.description
+    ? `\n## 五、自定义附加题（${customQuestion.description}）\n\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}\n\n**6.** [题干]\n（答题区：________________________）`
+    : ""}
+
+---
+
+# 🏆 试卷标准答案及深度解析册
+
+> ⚠️ 教师专用 · 请勿发给学生
+
+## 一、单项选择题答案
+
+**[第1题]** 正确答案：X
+解析：（完整推理：为什么选X，其他选项错误原因，涉及的知识点）
+
+**[第2题]** 正确答案：X
+解析：...
+
+## 二、填空题答案
+
+**[第3题]** 正确答案：... | 解析：...
+
+## 三、简答/计算题答案
+
+**[第4题]** 参考答案：... | 评分要点与得分步骤：...
+
+## 四、材料分析题答案
+
+**[第5题]** 参考答案：... | 得分关键点：...
+${customQuestion?.enabled && customQuestion.description
+    ? `\n## 五、自定义附加题答案\n**[第6题]** 正确答案：... | 解析：...\n\n（按自定义要求生成 ${customQuestion.count} 道题及答案，延续上述题号）`
+    : ""}
+`;
+}
+
+function buildAdjustPrompt(direction: "simplify" | "advance", previousRaw: string): string {
+  const adj = direction === "simplify" ? "降低" : "提升";
+  const strat = direction === "simplify"
+    ? "将词汇替换为更日常的同义词，将复杂句拆为简单句，测试题难度同步降低"
+    : "将基础词替换为进阶学术词，增加复合句，测试题难度同步提升";
+
+  return `对以下内容进行平滑难度微调（${adj}约10~15%），保持主题和结构不变。
+
+微调策略：${strat}
+
+原内容：${previousRaw}
+
+请输出更新后的完整 JSON。`;
 }
 
 // ============================================================
-// Main handler
+// POST handler
 // ============================================================
+
 export async function POST(request: NextRequest) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1";
 
   if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: "服务器未配置 DEEPSEEK_API_KEY" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "未配置 DEEPSEEK_API_KEY" }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 
-  let body: { topic?: string; difficulty?: string; grade?: string; action?: string; previousContent?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "无效的请求体" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
+  let body: Record<string, unknown>;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: "无效请求体" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const { topic, difficulty, grade, action = "generate", previousContent } = body;
+  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent } = body as Record<string, unknown>;
 
-  if (!topic || !difficulty || !grade) {
-    return new Response(
-      JSON.stringify({ error: "缺少必要参数：topic, difficulty, grade" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
+  if (!topic || !subject || !mod || !difficulty || !grade) {
+    return new Response(JSON.stringify({ error: "缺少必要参数" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
-
-  const gradeLabel = GRADE_LABELS[grade] || grade;
-  const diffLabel = DIFF_LABELS[difficulty] || difficulty;
 
   let systemPrompt: string;
   let userPrompt: string;
 
   if (action === "simplify" || action === "advance") {
     if (!previousContent) {
-      return new Response(
-        JSON.stringify({ error: "平滑微调需要提供 previousContent" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ error: "微调需要 previousContent" }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
-    systemPrompt = buildAdjustPrompt(action, previousContent);
-    userPrompt = `请对上述教案进行"${action === "simplify" ? "稍稍简化" : "稍稍拔高"}"处理，输出更新后的完整教案 JSON。`;
+    systemPrompt = buildAdjustPrompt(action as "simplify" | "advance", previousContent as string);
+    userPrompt = `请对上述内容进行"${action === "simplify" ? "稍稍简化" : "稍稍拔高"}"处理，输出完整 JSON。`;
   } else {
-    systemPrompt = SYSTEM_PROMPT_GENERATE;
-    userPrompt = `请为以下课程生成教案：
-- 知识点主题：${topic}
-- 难度级别：${diffLabel}
-- 学段：${gradeLabel}
-
-请直接输出 JSON。`;
+    systemPrompt = buildPrompt(
+      topic as string, subject as Subject, mod as ModuleTab,
+      difficulty as Difficulty, grade as GradeLevel,
+      (questionConfigs as QuestionTypeConfig[]) || [],
+      customQuestion as { enabled: boolean; description: string; count: number } | undefined,
+    );
+    userPrompt = `请为【${SUBJECT_LABELS[subject as string]}·${topic}】生成内容。按上述格式输出纯 Markdown，不要输出 JSON。`;
   }
 
-  console.log(`[API/chat] Action=${action} | topic=${topic} | diff=${difficulty} | grade=${grade}`);
+  console.log(`[API/chat] subject=${subject} module=${mod} action=${action}`);
+
+  const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
+      // ═══ 即时心跳：发送连接建立信号，防止浏览器超时 ═══
+      controller.enqueue(encoder.encode("data: __START__\n\n"));
+
       let fullContent = "";
 
       try {
-        const dsResponse = await fetch(`${baseUrl}/chat/completions`, {
+        const res = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: "deepseek-chat",
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-            max_tokens: 4096,
-            temperature: 0.8,
-            stream: true,
-          }),
-          signal: AbortSignal.timeout(60000),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 8192, temperature: 0.8, stream: true }),
+          signal: AbortSignal.timeout(120000),
         });
 
-        if (!dsResponse.ok) {
-          console.error("[API/chat] DeepSeek error:", dsResponse.status, await dsResponse.text().catch(() => ""));
-          sendSSE(controller, { type: "error", message: `DeepSeek API 返回错误 (${dsResponse.status})` });
-          controller.close();
-          return;
+        if (!res.ok) {
+          console.error("[API/chat] DeepSeek error:", res.status);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: `DeepSeek 返回错误 (${res.status})` })}\n\n`));
+          controller.close(); return;
         }
 
-        const reader = dsResponse.body?.getReader();
+        const reader = res.body?.getReader();
         if (!reader) {
-          sendSSE(controller, { type: "error", message: "无法读取 AI 响应流" });
-          controller.close();
-          return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: "无法读取流" })}\n\n`));
+          controller.close(); return;
         }
 
         const decoder = new TextDecoder();
-        let buffer = "";
+        let buf = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n"); buf = lines.pop() || "";
           for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith("data: ")) continue;
-
-            const dataStr = trimmed.slice(6);
-            if (dataStr === "[DONE]") continue;
-
+            const t = line.trim();
+            if (!t.startsWith("data: ")) continue;
+            const d = t.slice(6);
+            if (d === "[DONE]") continue;
             try {
-              const chunk = JSON.parse(dataStr);
-              const delta = chunk.choices?.[0]?.delta?.content;
-              if (delta) fullContent += delta;
+              const delta = JSON.parse(d).choices?.[0]?.delta?.content;
+              if (delta) {
+                fullContent += delta;
+                // 原始文本直传：不做 JSON 包装，零额外开销
+                controller.enqueue(encoder.encode(`data: ${delta}\n\n`));
+              }
             } catch { /* skip malformed chunks */ }
           }
         }
 
-        // ── Robust JSON extraction ──
-        let jsonStr = fullContent.trim();
+        // ── 完成：所有模块统一 rawMarkdown 直传 ──
+        const title = `${topic} — ${SUBJECT_LABELS[subject as string]}`;
 
-        // Strategy 1: markdown code block
-        const mdMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (mdMatch) jsonStr = mdMatch[1].trim();
+        // 教案尝试提取标题和核心目标（可选优化，失败不影响渲染）
+        let extractedTitle = title;
+        const sections: { emoji: string; title: string; body: string }[] = [];
 
-        // Strategy 2: find outermost {}
-        if (!jsonStr.startsWith("{")) {
-          const braceStart = jsonStr.indexOf("{");
-          const braceEnd = jsonStr.lastIndexOf("}");
-          if (braceStart !== -1 && braceEnd > braceStart) {
-            jsonStr = jsonStr.slice(braceStart, braceEnd + 1);
+        if (mod === "lesson_plan") {
+          // 从 Markdown 中提取一级标题
+          const titleMatch = fullContent.match(/^# (.+)$/m);
+          if (titleMatch) extractedTitle = titleMatch[1].trim();
+
+          // 提取四步流程为 sections
+          const stepRegex = /### (🎯|📖|✋|🌟) (.+?)（(\d+)分钟\)\n\*\*教师行为：\*\*(.+?)\n\*\*老师说：\*\*\s*"([\s\S]*?)"/g;
+          let m: RegExpExecArray | null;
+          while ((m = stepRegex.exec(fullContent)) !== null) {
+            sections.push({
+              emoji: m[1],
+              title: `${m[2]}（${m[3]}分钟）`,
+              body: `**教师行为：**${m[4].trim()}\n\n**老师说：** "${m[5].trim()}"`,
+            });
           }
         }
 
-        // Strategy 3: fix common JSON issues
-        jsonStr = jsonStr
-          .replace(/,\s*}/g, "}")
-          .replace(/,\s*]/g, "]");
+        const meta = {
+          title: extractedTitle,
+          subject, module: mod,
+          coreObjectives: { vocabulary: [] as { word: string; meaning: string }[], keyStructures: [] as string[], keyPoints: "", difficultPoints: "" },
+          sections,
+          exercises: "",
+          quiz: { studentPaper: mod === "lesson_plan" ? "" : fullContent },
+          layeredHomework: { basic: "", advanced: "" },
+          answerKey: { content: "" },
+          rawMarkdown: fullContent,
+        };
 
-        try {
-          const parsed = JSON.parse(jsonStr);
-
-          if (!parsed.sections || !Array.isArray(parsed.sections)) {
-            throw new Error("Missing sections array");
-          }
-
-          // Ensure all new fields have fallbacks
-          const coreObjectives = parsed.coreObjectives || {
-            vocabulary: [],
-            keyStructures: [],
-            keyPoints: "",
-            difficultPoints: "",
-          };
-          const quiz = parsed.quiz || { studentPaper: "" };
-          const layeredHomework = parsed.layeredHomework || { basic: "", advanced: "" };
-          const answerKey = parsed.answerKey || { content: "" };
-
-          // Build rawMarkdown
-          const rawMarkdown = [
-            `# ${parsed.title}`,
-            "",
-            "---",
-            "",
-            "### 📚 核心词汇 (Core Vocabulary)",
-            ...(coreObjectives.vocabulary || []).map(
-              (v: { word: string; meaning: string }) => `- **${v.word}** — ${v.meaning}`,
-            ),
-            "",
-            "### 🗣️ 核心句型 (Key Structures)",
-            ...(coreObjectives.keyStructures || []).map((s: string) => `- ${s}`),
-            "",
-            "### 🎯 教学重难点 (Teaching Focus)",
-            `**重点**：${coreObjectives.keyPoints || "无"}`,
-            "",
-            `**难点**：${coreObjectives.difficultPoints || "无"}`,
-            "",
-            "---",
-            "",
-            ...parsed.sections.map(
-              (s: { emoji: string; title: string; body: string }) =>
-                `${s.emoji} **${s.title}**\n\n${s.body}`,
-            ),
-            "",
-            parsed.exercises || "",
-            "",
-            "---",
-            "",
-            quiz.studentPaper || "",
-            "",
-            "---",
-            "",
-            "### 🏡 课后分层作业 (Layered Homework)",
-            "",
-            layeredHomework.basic || "",
-            "",
-            layeredHomework.advanced || "",
-            "",
-            "---",
-            "",
-            answerKey.content || "",
-          ].join("\n");
-
-          const result = {
-            title: parsed.title || "未命名教案",
-            coreObjectives,
-            sections: parsed.sections,
-            exercises: parsed.exercises || "",
-            quiz,
-            layeredHomework,
-            answerKey,
-            rawMarkdown,
-          };
-
-          console.log(`[API/chat] Success. Sections: ${result.sections.length}, Vocab: ${coreObjectives.vocabulary?.length || 0}`);
-          sendSSE(controller, { type: "done", content: JSON.stringify(result) });
-        } catch (parseErr) {
-          console.error("[API/chat] JSON parse failed:", parseErr);
-          console.error("[API/chat] Raw:", fullContent.substring(0, 300));
-          sendSSE(controller, { type: "error", message: "AI 返回的内容无法解析为 JSON，请重试" });
-        }
-      } catch (err) {
-        console.error("[API/chat] Stream error:", err);
-        sendSSE(controller, { type: "error", message: err instanceof Error ? err.message : "服务器内部错误" });
-      } finally {
-        controller.close();
-      }
+        console.log(`[API/chat] OK — module=${mod} len=${fullContent.length} sections=${sections.length}`);
+        controller.enqueue(encoder.encode(`data: __DONE__\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(meta)}\n\n`));
+      } catch (e) {
+        console.error("[API/chat] Stream error:", e);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", message: e instanceof Error ? e.message : "服务器错误" })}\n\n`));
+      } finally { controller.close(); }
     },
   });
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform, max-age=0",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },

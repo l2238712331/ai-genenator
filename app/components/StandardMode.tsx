@@ -3,6 +3,7 @@
 import { GeneratedContent } from "@/types";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
 
 interface Props {
   content: GeneratedContent;
@@ -84,52 +85,64 @@ export function StandardMode({ content }: Props) {
         </div>
       </div>
 
-      {/* Content — increased font size + line-height for readability */}
-      <div className="p-6 md:p-8 space-y-6 text-[15px] md:text-[17px] leading-loose">
+      {/* Content */}
+      <div className="p-6 md:p-8 space-y-6">
         {/* Title */}
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900 leading-snug">
           {content.title}
         </h1>
 
-        {/* ─── Core Objectives Section ─── */}
-        {content.coreObjectives && (
-          <CoreObjectivesSection obj={content.coreObjectives} />
-        )}
+        {content.module === "lesson_plan" ? (
+          /* ═══ 教案模块：结构化组件渲染 ═══ */
+          <>
+            {/* Core Objectives */}
+            {content.coreObjectives && (content.coreObjectives.vocabulary?.length || content.coreObjectives.keyStructures?.length || content.coreObjectives.keyPoints || content.coreObjectives.difficultPoints) && (
+              <CoreObjectivesSection obj={content.coreObjectives} />
+            )}
 
-        {/* Teaching Sections */}
-        <div className="space-y-5">
-          {content.sections.map((section, index) => (
-            <div key={index} className="space-y-2">
-              <h2 className="text-lg md:text-xl font-semibold text-gray-800 flex items-center gap-2 border-b border-gray-200 pb-2">
-                <span>{section.emoji}</span>
-                {section.title}
-              </h2>
-              <div className="text-gray-700 leading-loose whitespace-pre-wrap pl-1">
-                {section.body}
+            {/* Teaching Sections */}
+            {content.sections.length > 0 && (
+              <div className="space-y-5">
+                {content.sections.map((section, index) => (
+                  <div key={index} className="space-y-2">
+                    <h2 className="text-lg md:text-xl font-semibold text-gray-800 flex items-center gap-2 border-b border-gray-200 pb-2">
+                      <span>{section.emoji}</span>
+                      {section.title}
+                    </h2>
+                    <div className="text-gray-700 leading-loose whitespace-pre-wrap pl-1">
+                      {section.body}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
+            )}
 
-        {/* Exercises */}
-        {content.exercises && (
-          <div className="space-y-2 border-t border-dashed border-gray-200 pt-5">
-            <h2 className="text-lg md:text-xl font-semibold text-amber-700 flex items-center gap-2">
-              📝 课后练习
-            </h2>
-            <div className="text-gray-700 leading-loose whitespace-pre-wrap bg-amber-50 rounded-xl p-4 border border-amber-100">
-              {content.exercises}
-            </div>
+            {/* Exercises */}
+            {content.exercises && (
+              <div className="space-y-2 border-t border-dashed border-gray-200 pt-5">
+                <h2 className="text-lg md:text-xl font-semibold text-amber-700 flex items-center gap-2">
+                  📝 课后练习
+                </h2>
+                <div className="text-gray-700 leading-loose whitespace-pre-wrap bg-amber-50 rounded-xl p-4 border border-amber-100">
+                  {content.exercises}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          /* ═══ 测试 / 试卷模块：rawMarkdown 直接渲染 ═══ */
+          <div className="text-[15px] md:text-[17px] leading-loose prose prose-gray max-w-none
+            prose-headings:text-gray-800 prose-headings:font-semibold
+            prose-h2:text-xl prose-h2:border-b prose-h2:border-gray-200 prose-h2:pb-2 prose-h2:mt-8 prose-h2:mb-4
+            prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+            prose-p:my-2 prose-p:text-gray-700
+            prose-ul:my-2 prose-li:my-1
+            prose-strong:text-gray-900
+            prose-hr:my-6 prose-hr:border-dashed prose-hr:border-gray-300
+            [&_del]:text-gray-400 [&_hr]:border-t-2 [&_hr]:border-gray-300
+          ">
+            <ReactMarkdown>{content.rawMarkdown}</ReactMarkdown>
           </div>
-        )}
-
-        {/* Quiz, Layered Homework & Answer Key */}
-        {(content.quiz?.studentPaper || content.layeredHomework?.basic || content.answerKey?.content) && (
-          <PrintSection
-            quiz={content.quiz}
-            homework={content.layeredHomework}
-            answerKey={content.answerKey}
-          />
         )}
       </div>
     </div>
@@ -214,85 +227,6 @@ function CoreObjectivesSection({
   );
 }
 
-// ─── Print Section (Quiz + Homework + Answer Key) ────────────
-
-function PrintSection({
-  quiz,
-  homework,
-  answerKey,
-}: {
-  quiz: { studentPaper: string };
-  homework: { basic: string; advanced: string };
-  answerKey: { content: string };
-}) {
-  return (
-    <div id="printable-section" className="space-y-3">
-      {/* Quiz — Student Paper */}
-      {quiz?.studentPaper && (
-        <div className="border-2 border-gray-300 rounded-xl overflow-hidden">
-          <div className="bg-gray-100 px-5 py-2.5 border-b border-gray-300 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              📝 随堂测验（学生卷 · 可打印分发）
-            </span>
-            <span className="text-xs text-gray-400 hidden sm:inline">
-              姓名：________  班级：________
-            </span>
-          </div>
-          <div className="p-5 md:p-6 text-gray-800 leading-loose whitespace-pre-wrap bg-white">
-            {quiz.studentPaper}
-          </div>
-        </div>
-      )}
-
-      {/* Layered Homework */}
-      {homework && (homework.basic || homework.advanced) && (
-        <div className="border-2 border-emerald-200 rounded-xl overflow-hidden bg-emerald-50/40">
-          <div className="bg-emerald-100/70 px-5 py-2.5 border-b border-emerald-200">
-            <span className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
-              🏡 课后分层作业
-            </span>
-          </div>
-          <div className="p-5 md:p-6 space-y-4">
-            {homework.basic && (
-              <div>
-                <h3 className="text-sm font-semibold text-emerald-700 mb-2">A. 基础巩固题（必做 · 全体学生）</h3>
-                <div className="text-gray-800 leading-loose whitespace-pre-wrap bg-white rounded-lg p-3 border border-emerald-100">
-                  {homework.basic}
-                </div>
-              </div>
-            )}
-            {homework.advanced && (
-              <div>
-                <h3 className="text-sm font-semibold text-emerald-700 mb-2">B. 拓展拔高题（选做 · 学有余力）</h3>
-                <div className="text-gray-800 leading-loose whitespace-pre-wrap bg-white rounded-lg p-3 border border-emerald-100">
-                  {homework.advanced}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Divider + Answer Key */}
-      {answerKey?.content && (
-        <>
-          <hr className="border-t-2 border-dashed border-gray-400 my-3" />
-          <div className="border-2 border-primary-200 rounded-xl overflow-hidden bg-primary-50/30">
-            <div className="bg-primary-100 px-5 py-2.5 border-b border-primary-200">
-              <span className="text-sm font-semibold text-primary-800 flex items-center gap-2">
-                🔑 教师参考答案与解析（仅教师留存 · 勿发给学生）
-              </span>
-            </div>
-            <div className="p-5 md:p-6 text-gray-800 leading-loose whitespace-pre-wrap">
-              {answerKey.content}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 // ─── Word HTML Builder (no external deps) ─────────────────────
 
 function buildWordHtml(content: GeneratedContent): string {
@@ -348,8 +282,39 @@ function buildWordHtml(content: GeneratedContent): string {
       </div>`
     : "";
 
+  // 测试/试卷模块：rawMarkdown 全文用 <pre> 保留 AI 原始排版
+  if (content.module !== "lesson_plan" && content.rawMarkdown) {
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+              xmlns:w="urn:schemas-microsoft-com:office:word"
+              xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: 'Microsoft YaHei', 'SimSun', sans-serif; font-size: 13px; color: #1f2937; line-height: 1.8; }
+  pre { white-space: pre-wrap; word-wrap: break-word; font-family: 'Microsoft YaHei', 'SimSun', monospace; }
+  hr { border: none; border-top: 2px dashed #999; margin: 16px 0; }
+  @media print { body { background: #fff; } }
+</style>
+</head>
+<body>
+<h1 style="font-size:20px;font-weight:bold;color:#111827;margin-bottom:12px;">${content.title}</h1>
+<pre>${content.rawMarkdown
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/^---$/gm, "<hr>")
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/\n/g, "<br>")}</pre>
+<br><p style="color:#9ca3af;font-size:12px;text-align:center;">由 智能教案讲义生成器 生成</p>
+</body>
+</html>`;
+  }
+
+  // 教案模块：结构化 HTML 构建
   return `<html xmlns:o="urn:schemas-microsoft-com:office:office"
-            xmlns:w="urn:schemas-microsoft-com:office:word"
             xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8">
