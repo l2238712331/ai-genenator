@@ -25,7 +25,7 @@ async function callChatAPI(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       topic: data.topic,
-      subject: data.subject,
+      subject: data.subject || undefined,
       module: data.module,
       difficulty: data.difficulty,
       grade: data.grade,
@@ -39,6 +39,7 @@ async function callChatAPI(
       gradeLevel: data.gradeLevel || undefined,
       chapterName: data.chapterName || undefined,
       textbookSubject: data.textbookSubject || undefined,
+      generateMode: data.generateMode || undefined,
     }),
     signal: options?.signal,
   });
@@ -115,9 +116,10 @@ const MOCK_ANSWER: AnswerKey = { content: "## 🔑 教师参考答案与解析\n
 
 function genMock(data: FormSubmitData): GeneratedContent {
   const s = data.subject; const m = data.module;
-  const title = m === "lesson_plan" ? `${data.topic} — 教学设计（${s}）`
-    : m === "quiz_homework" ? `${data.topic} — 随堂测试与作业（${s}）`
-      : `${data.topic} — 定制试卷（${s}）`;
+  const subjectLabel = s || "";
+  const title = m === "lesson_plan" ? `${data.topic} — 教学设计（${subjectLabel}）`
+    : m === "quiz_homework" ? `${data.topic} — 随堂测试与作业（${subjectLabel}）`
+      : `${data.topic} — 定制试卷（${subjectLabel}）`;
 
   const sections = m === "lesson_plan" ? [
     { emoji: "🎯", title: "导入环节", body: `* 回顾上节课内容\n* 引出主题「${data.topic}」\n\n🗣️ Teacher's Script:\n"Good morning! Today we will explore ${data.topic}."` },

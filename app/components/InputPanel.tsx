@@ -9,7 +9,6 @@ import {
   type GradeLevel,
   type QuestionTypeConfig,
   SUBJECT_LABELS,
-  SUBJECT_EMOJIS,
   SUBJECT_QUESTION_TYPES,
   MODULE_TABS,
   DIFFICULTY_LABELS,
@@ -18,7 +17,7 @@ import {
 
 export interface FormSubmitData {
   topic: string;
-  subject: Subject;
+  subject?: Subject;
   module: ModuleTab;
   difficulty: Difficulty;
   grade: GradeLevel;
@@ -33,6 +32,8 @@ export interface FormSubmitData {
   textbookVersion?: string;
   gradeLevel?: string;
   chapterName?: string;
+  // 生成模式
+  generateMode?: "knowledge" | "textbook";
 }
 
 interface Props {
@@ -42,8 +43,10 @@ interface Props {
 }
 
 export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
-  // ── Subject & Module ──
-  const [subject, setSubject] = useState<Subject>("english");
+  // ── Generate Mode ──
+  const [generateMode, setGenerateMode] = useState<"knowledge" | "textbook">("knowledge");
+
+  // ── Module ──
   const [activeModule, setActiveModule] = useState<ModuleTab>("lesson_plan");
 
   // ── Topic ──
@@ -71,13 +74,14 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   const [textbookGrade, setTextbookGrade] = useState("");
   const [textbookChapter, setTextbookChapter] = useState("");
 
-  // 切换科目时重置题型
+  // 科目由 AI 自行判断，前端不再传递 subject
+  // 初始化默认题型（使用通用模板）
   useEffect(() => {
-    const types = SUBJECT_QUESTION_TYPES[subject];
+    const types = SUBJECT_QUESTION_TYPES["english"];
     setQuestionConfigs(
       types.map((t) => ({ type: t.value, label: t.label, count: 3 })),
     );
-  }, [subject]);
+  }, []);
 
   // 勾选/取消勾选
   const toggleQuestionType = useCallback((typeValue: string) => {
@@ -114,7 +118,6 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
     }
     onGenerate({
       topic: effectiveTopic,
-      subject,
       module: activeModule,
       difficulty,
       grade,
@@ -126,6 +129,7 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       gradeLevel: textbookGrade || undefined,
       chapterName: textbookChapter.trim() || undefined,
       textbookSubject: textbookSubject || undefined,
+      generateMode,
     });
   };
 
@@ -133,7 +137,6 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
     setShowLimitModal(false);
     onGenerate({
       topic: effectiveTopic,
-      subject,
       module: activeModule,
       difficulty,
       grade,
@@ -145,6 +148,7 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       gradeLevel: textbookGrade || undefined,
       chapterName: textbookChapter.trim() || undefined,
       textbookSubject: textbookSubject || undefined,
+      generateMode,
     });
   };
 
@@ -155,7 +159,6 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
     if (!canAdapt) return;
     onGenerate({
       topic: adaptOriginalQuestion.trim(),
-      subject,
       module: activeModule,
       difficulty,
       grade,
@@ -166,6 +169,7 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       textbookVersion: textbookVersion || undefined,
       gradeLevel: textbookGrade || undefined,
       chapterName: textbookChapter.trim() || undefined,
+      generateMode,
     });
   };
 
@@ -176,86 +180,115 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
         <span>⚙️</span> 输入控制面板
       </h2>
 
-      {/* ── Subject Tags ── */}
+      {/* ── Generate Mode Toggle ── */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">选择科目</label>
-        <div className="grid grid-cols-5 gap-1.5 md:gap-2">
-          {(Object.entries(SUBJECT_LABELS) as [Subject, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setSubject(key)}
-              className={cn(
-                "px-2 py-2.5 rounded-xl border text-xs font-semibold text-center transition-all active:scale-95",
-                subject === key
-                  ? "bg-primary-50 border-primary-500 text-primary-700 shadow-sm"
-                  : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50",
-              )}
-            >
-              <span className="block text-sm mb-0.5">{SUBJECT_EMOJIS[key]}</span>
-              {label}
-            </button>
-          ))}
+        <label className="text-sm font-medium text-gray-700">生成方式</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setGenerateMode("knowledge")}
+            className={cn(
+              "px-4 py-3 rounded-xl border text-sm font-semibold text-center transition-all active:scale-95",
+              generateMode === "knowledge"
+                ? "bg-primary-50 border-primary-500 text-primary-700 shadow-sm"
+                : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50",
+            )}
+          >
+            <span className="block text-lg mb-0.5">🧠</span>
+            按知识点生成
+          </button>
+          <button
+            onClick={() => setGenerateMode("textbook")}
+            className={cn(
+              "px-4 py-3 rounded-xl border text-sm font-semibold text-center transition-all active:scale-95",
+              generateMode === "textbook"
+                ? "bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm"
+                : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50",
+            )}
+          >
+            <span className="block text-lg mb-0.5">📚</span>
+            按教材生成
+          </button>
         </div>
       </div>
 
-      {/* ── 教材大纲同步 ── */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-          📚 教材大纲同步
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          <select
-            value={textbookSubject}
-            onChange={(e) => setTextbookSubject(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
-          >
-            <option value="">科目（可选）</option>
-            {(Object.entries(SUBJECT_LABELS) as [Subject, string][]).map(([key, label]) => (
-              <option key={key} value={label}>{label}</option>
-            ))}
-          </select>
-          <select
-            value={textbookVersion}
-            onChange={(e) => setTextbookVersion(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
-          >
-            <option value="">教材版本（可选）</option>
-            <option value="人教版">人教版</option>
-            <option value="北师大版">北师大版</option>
-            <option value="苏教版">苏教版</option>
-            <option value="粤教版">粤教版</option>
-            <option value="部编版">部编版</option>
-            <option value="沪教版">沪教版</option>
-            <option value="浙教版">浙教版</option>
-          </select>
-          <select
-            value={textbookGrade}
-            onChange={(e) => setTextbookGrade(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
-          >
-            <option value="">适用年级（可选）</option>
-            <option value="一年级上">一年级上</option><option value="一年级下">一年级下</option>
-            <option value="二年级上">二年级上</option><option value="二年级下">二年级下</option>
-            <option value="三年级上">三年级上</option><option value="三年级下">三年级下</option>
-            <option value="四年级上">四年级上</option><option value="四年级下">四年级下</option>
-            <option value="五年级上">五年级上</option><option value="五年级下">五年级下</option>
-            <option value="六年级上">六年级上</option><option value="六年级下">六年级下</option>
-            <option value="七年级上">七年级上</option><option value="七年级下">七年级下</option>
-            <option value="八年级上">八年级上</option><option value="八年级下">八年级下</option>
-            <option value="九年级上">九年级上</option><option value="九年级下">九年级下</option>
-            <option value="高一上">高一上</option><option value="高一下">高一下</option>
-            <option value="高二上">高二上</option><option value="高二下">高二下</option>
-            <option value="高三上">高三上</option><option value="高三下">高三下</option>
-          </select>
+      {/* ── 知识点模式：Topic Input ── */}
+      {generateMode === "knowledge" && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700">
+            知识点 / 主题
+          </label>
+          <textarea
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="请输入知识点主题，例如：一次函数、勾股定理、现在完成时、光合作用…（AI 将自动识别科目）"
+            rows={3}
+            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm resize-none
+                       focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+                       placeholder:text-gray-400 transition-all"
+          />
         </div>
-        <input
-          type="text"
-          value={textbookChapter}
-          onChange={(e) => setTextbookChapter(e.target.value)}
-          placeholder="输入具体章节，如：第三章 3.1.1 一元一次方程的概念"
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 placeholder:text-gray-400 text-gray-700"
-        />
-      </div>
+      )}
+
+      {/* ── 教材模式：教材大纲同步 ── */}
+      {generateMode === "textbook" && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+            📚 教材大纲同步
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            <select
+              value={textbookSubject}
+              onChange={(e) => setTextbookSubject(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+            >
+              <option value="">科目</option>
+              {(Object.entries(SUBJECT_LABELS) as [Subject, string][]).map(([key, label]) => (
+                <option key={key} value={label}>{label}</option>
+              ))}
+            </select>
+            <select
+              value={textbookVersion}
+              onChange={(e) => setTextbookVersion(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+            >
+              <option value="">教材版本</option>
+              <option value="人教版">人教版</option>
+              <option value="北师大版">北师大版</option>
+              <option value="苏教版">苏教版</option>
+              <option value="粤教版">粤教版</option>
+              <option value="部编版">部编版</option>
+              <option value="沪教版">沪教版</option>
+              <option value="浙教版">浙教版</option>
+            </select>
+            <select
+              value={textbookGrade}
+              onChange={(e) => setTextbookGrade(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+            >
+              <option value="">年级</option>
+              <option value="一年级上">一年级上</option><option value="一年级下">一年级下</option>
+              <option value="二年级上">二年级上</option><option value="二年级下">二年级下</option>
+              <option value="三年级上">三年级上</option><option value="三年级下">三年级下</option>
+              <option value="四年级上">四年级上</option><option value="四年级下">四年级下</option>
+              <option value="五年级上">五年级上</option><option value="五年级下">五年级下</option>
+              <option value="六年级上">六年级上</option><option value="六年级下">六年级下</option>
+              <option value="七年级上">七年级上</option><option value="七年级下">七年级下</option>
+              <option value="八年级上">八年级上</option><option value="八年级下">八年级下</option>
+              <option value="九年级上">九年级上</option><option value="九年级下">九年级下</option>
+              <option value="高一上">高一上</option><option value="高一下">高一下</option>
+              <option value="高二上">高二上</option><option value="高二下">高二下</option>
+              <option value="高三上">高三上</option><option value="高三下">高三下</option>
+            </select>
+          </div>
+          <input
+            type="text"
+            value={textbookChapter}
+            onChange={(e) => setTextbookChapter(e.target.value)}
+            placeholder="输入具体章节，如：第三章 3.1.1 一元一次方程的概念"
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 placeholder:text-gray-400 text-gray-700"
+          />
+        </div>
+      )}
 
       {/* ── Module Tabs ── */}
       <div className="space-y-2">
@@ -280,22 +313,6 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* ── Topic Input ── */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">
-          知识点 / 主题
-        </label>
-        <textarea
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder={`请输入${SUBJECT_LABELS[subject]}知识点主题，例如：一次函数、勾股定理、现在完成时…`}
-          rows={3}
-          className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm resize-none
-                     focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
-                     placeholder:text-gray-400 transition-all"
-        />
       </div>
 
       {/* ── Difficulty ── */}

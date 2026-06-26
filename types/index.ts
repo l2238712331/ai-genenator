@@ -121,7 +121,7 @@ export interface QuestionTypeConfig {
 
 export interface LessonFormData {
   topic: string;
-  subject: Subject;
+  subject?: Subject;
   module: ModuleTab;
   difficulty: Difficulty;
   grade: GradeLevel;
@@ -160,7 +160,7 @@ export interface AnswerKey {
 
 export interface GeneratedContent {
   title: string;
-  subject: Subject;
+  subject?: Subject;
   module: ModuleTab;
   coreObjectives: CoreObjectives;
   sections: SectionCard[];
@@ -196,7 +196,7 @@ export type GenerateAction = "generate" | "simplify" | "advance";
 
 export interface ChatRequest {
   topic: string;
-  subject: Subject;
+  subject?: Subject;
   module: ModuleTab;
   difficulty: Difficulty;
   grade: GradeLevel;
