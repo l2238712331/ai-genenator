@@ -40,6 +40,9 @@ async function callChatAPI(
       chapterName: data.chapterName || undefined,
       textbookSubject: data.textbookSubject || undefined,
       generateMode: data.generateMode || undefined,
+      extraRequirements: data.extraRequirements || undefined,
+      generateAnswer: data.generateAnswer || undefined,
+      generateExplanation: data.generateExplanation || undefined,
     }),
     signal: options?.signal,
   });

@@ -33,6 +33,99 @@ const SUBJECT_HINTS: Record<string, string> = {
 };
 
 // ============================================================
+// Question Section Builder (动态题型模板)
+// ============================================================
+
+const QUESTION_TEMPLATES: Record<string, { studentHeader: string; studentBody: string; answerHeader: string; answerBody: string }> = {
+  choice: {
+    studentHeader: "### 选择题",
+    studentBody: "(每题 4 个选项 A/B/C/D，选项每行一个，标清题号)",
+    answerHeader: "### 选择题答案",
+    answerBody: "**第N题** 正确答案：X | 解析：（写清考点与推理过程）",
+  },
+  fill_blank: {
+    studentHeader: "### 填空题",
+    studentBody: "(每题预留横线______，标清题号)",
+    answerHeader: "### 填空题答案",
+    answerBody: "**第N题** 正确答案：... | 解析：...",
+  },
+  short_answer: {
+    studentHeader: "### 简答题/计算题",
+    studentBody: "(每题标注题号，预留答题区)",
+    answerHeader: "### 简答题答案与评分标准",
+    answerBody: "**第N题** 参考答案：... | 评分要点：...",
+  },
+  reading: {
+    studentHeader: "### 阅读理解",
+    studentBody: "(提供一篇阅读材料 + 若干道小题，标清题号)",
+    answerHeader: "### 阅读理解答案",
+    answerBody: "**第N题** 正确答案：X | 解析：...",
+  },
+  rewrite: {
+    studentHeader: "### 改写句子/句型转换",
+    studentBody: "(每题给出原句，要求改写，标清题号)",
+    answerHeader: "### 改写句子答案",
+    answerBody: "**第N题** 参考答案：... | 解析：...",
+  },
+  cloze: {
+    studentHeader: "### 完形填空",
+    studentBody: "(提供一篇短文，留出若干空，标清题号)",
+    answerHeader: "### 完形填空答案",
+    answerBody: "**第N题** 正确答案：X | 解析：...",
+  },
+  material_discuss: {
+    studentHeader: "### 材料分析/论述题",
+    studentBody: "(提供材料，提出分析要求，标清题号)",
+    answerHeader: "### 材料分析题答案",
+    answerBody: "**第N题** 参考答案：... | 评分要点与得分步骤：...",
+  },
+  true_false: {
+    studentHeader: "### 判断题",
+    studentBody: "(每题给出陈述，标注题号，让选择对/错)",
+    answerHeader: "### 判断题答案",
+    answerBody: "**第N题** 正确答案：对/错 | 解析：...",
+  },
+  translate: {
+    studentHeader: "### 翻译题",
+    studentBody: "(每题给出原文，要求翻译，标清题号)",
+    answerHeader: "### 翻译题答案",
+    answerBody: "**第N题** 参考译文：... | 解析：...",
+  },
+};
+
+function buildQuestionSections(configs: QuestionTypeConfig[], subjectName: string, withExplanation: boolean) {
+  const active = configs.filter((q) => q.count > 0);
+  if (active.length === 0) {
+    return { student: "", answer: "" };
+  }
+
+  let studentParts = "";
+  let answerParts = "";
+  let globalIdx = 0;
+
+  for (const cfg of active) {
+    const tmpl = QUESTION_TEMPLATES[cfg.type];
+    if (!tmpl) continue;
+
+    studentParts += `\n${tmpl.studentHeader}\n生成 **${cfg.count}** 道真实的${subjectName}试题。${tmpl.studentBody}\n`;
+    for (let i = 0; i < cfg.count; i++) {
+      globalIdx++;
+      studentParts += `\n**第${globalIdx}题** ...`;
+    }
+    studentParts += "\n";
+
+    answerParts += `\n${tmpl.answerHeader}\n`;
+    const startIdx = globalIdx - cfg.count + 1;
+    const suffix = withExplanation ? " | 解析：..." : "";
+    for (let i = 0; i < cfg.count; i++) {
+      answerParts += `**第${startIdx + i}题** 正确答案：...${suffix}\n`;
+    }
+  }
+
+  return { student: studentParts, answer: answerParts };
+}
+
+// ============================================================
 // Dynamic Prompt Builder
 // ============================================================
 
@@ -41,6 +134,7 @@ function buildPrompt(
   difficulty: Difficulty, grade: GradeLevel, questionConfigs: QuestionTypeConfig[],
   customQuestion?: { enabled: boolean; description: string; count: number },
   textbookVersion?: string, gradeLevelTxt?: string, chapterName?: string, textbookSubject?: string,
+  generateAnswer?: boolean, generateExplanation?: boolean,
 ): string {
   // subject 未传入时，让 AI 自行判断
   const subjectName = subject
@@ -50,9 +144,6 @@ function buildPrompt(
   const diffName = DIFF_LABELS[difficulty];
   const subjectHint = subject ? (SUBJECT_HINTS[subject] || "") : "请根据内容自动适配学科特点，使用该学科的专业术语和题型规范。";
 
-  const qDesc = questionConfigs
-    .map((q) => `${q.label} × ${q.count}题`)
-    .join("、");
   const totalQ = questionConfigs.reduce((s, q) => s + q.count, 0);
 
   // ══════════════════════════════════════════════
@@ -174,85 +265,62 @@ ${antiLazy}
   // 模块二：随堂测试与作业
   // ══════════════════════════════════════════════
   if (module === "quiz_homework") {
+    const sections = buildQuestionSections(questionConfigs, subjectName, !!generateExplanation);
+    const noAnswerNote = !generateAnswer
+      ? `\n\n## ❌ 严禁输出答案\n你本次只需要生成学生练习卷部分。**绝对禁止输出任何答案、解析、参考答案或教师版内容。** 学生卷结束后立即停止输出，不得附加任何其他内容。`
+      : "";
+    const answerSection = generateAnswer
+      ? `\n\n---\n\n## ⚠️ 第二部分：教师参考答案（请勿发给学生）\n\n**🚨 注意：答案必须在 \`---\` 分隔线之后统一输出，严禁在每道题下方直接跟答案。**\n\n${sections.answer}${generateExplanation ? "\n每题解析必须写清考点、推理过程与易错点分析，长度不少于 40 字。" : "\n每题仅输出【正确答案】，不要写解析。"}\n${customQuestion?.enabled && customQuestion.description ? `\n### 🎨 自定义附加题答案\n按自定义要求生成 ${customQuestion.count} 道题答案。${generateExplanation ? "每题含正确答案 + 深度解析。" : "仅输出正确答案，不写解析。"}` : ""}`
+      : "";
+
     return `你是资深K12${subjectName}出题教师。${textbookLock}请为"${topic}"生成${totalQ}道随堂测试题。
 
 ${antiLazy}
 
+## 🚨 严格数量约束
+- 你只能生成以下题型的题目，每种题型的数量已明确规定，**严禁超量生成，也禁止额外增加其他题目**。
+- **禁止生成任何课后作业、拓展题或分层练习。**
+${questionConfigs.filter(q => q.count > 0).map(q => `- ${q.label}：恰好 ${q.count} 道`).join("\n")}
+
 ## 要求
-- 题型：${qDesc || "按需出题"}
 - 学段：${gradeName} / 难度：${diffName}
 - 特色：${subjectHint}
 
-## 输出格式（前后彻底分离，纯 Markdown，禁止 JSON 包装）
+## 输出格式（纯 Markdown，禁止 JSON 包装）
 
-# ${topic} — 随堂测试与作业
+# ${topic} — 随堂测试
 
-## 📝 第一部分：学生练习卷
+## 📝 学生练习卷
 
-### 一、选择题
-（生成真实的${subjectName}试题，选项 A/B/C/D 每行一个，每题注明题号）
-
-**第1题** [题干]
-A. [具体选项]
-B. [具体选项]
-C. [具体选项]
-D. [具体选项]
-
-**第2题** ...
-
-### 二、填空题
-（如需此题型）
-
-**第3题** [题干] ______
-
-### 三、简答题/计算题
-（如需此题型）
-
-**第4题** [题干]
-（答题区：________________________）
+${sections.student}
 ${customQuestion?.enabled && customQuestion.description
-    ? `\n### 四、🎨 自定义附加题\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}\n\n**第5题** [题干]\nA. [选项]  B. [选项]  C. [选项]  D. [选项]\n\n**第6题** ...`
+    ? `\n### 🎨 自定义附加题\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}`
     : ""}
-
-## 🏡 课后分层作业
-
-### A. 基础巩固（必做）
-**第5题** ...
-
-### B. 拓展拔高（选做 ★）
-**第6题** ...
-
----
-
-## ⚠️ 第二部分：教师参考答案（请勿发给学生）
-
-### 一、选择题答案
-**第1题** 正确答案：X | 解析：（写清考点与推理过程）
-**第2题** 正确答案：X | 解析：...
-
-### 二、填空题答案
-**第3题** 正确答案：... | 解析：...
-
-### 三、简答题答案与评分标准
-**第4题** 参考答案：... | 评分要点：...
-${customQuestion?.enabled && customQuestion.description
-    ? `\n### 四、🎨 自定义附加题答案\n**第5题** 正确答案：... | 解析：...\n**第6题** ...`
-    : ""}
-
-### 课后作业答案
-**第5题** ... | **第6题** ...
+${answerSection}${noAnswerNote}
 `;
   }
 
   // ══════════════════════════════════════════════
   // 模块三：弹性定制试卷
   // ══════════════════════════════════════════════
+  const sections = buildQuestionSections(questionConfigs, subjectName, !!generateExplanation);
+  const noAnswerNote = !generateAnswer
+    ? `\n\n## ❌ 严禁输出答案\n你本次只需要生成学生试卷部分。**绝对禁止输出任何答案、解析、参考答案或教师版内容。** 试卷结束后立即停止输出，不得附加任何其他内容。`
+    : "";
+  const answerSection = generateAnswer
+    ? `\n\n---\n\n# 🏆 试卷标准答案${generateExplanation ? "及深度解析册" : ""}\n\n> ⚠️ 教师专用 · 请勿发给学生\n\n**🚨 注意：答案必须在 \`---\` 分隔线之后统一输出，严禁在每道题下方直接跟答案。**\n\n${generateExplanation ? "每题必须有：【正确答案】+ 【深度解析】（不少于 40 字，涵盖考点定位、推理过程、易错点分析）。" : "每题仅输出【正确答案】，不要写解析。"}\n\n（请按题号顺序给出所有题目的答案${generateExplanation ? "和解析" : ""}。）`
+    : "";
+
   return `你是资深K12${subjectName}命题教师。${textbookLock}请为"${topic}"生成一份正式的标准化试卷。
 
 ${antiLazy}
 
+## 🚨 严格数量约束
+- 你只能生成以下题型的题目，每种题型的数量已明确规定，**严禁超量生成，也禁止额外增加其他题目**。
+- **禁止生成任何课后作业、拓展题或分层练习。**
+${questionConfigs.filter(q => q.count > 0).map(q => `- ${q.label}：恰好 ${q.count} 道`).join("\n")}
+
 ## 要求
-- 题型：${qDesc || "按需出题"}
 - 学段：${gradeName} / 难度：${diffName}
 - 特色：${subjectHint}
 
@@ -268,64 +336,11 @@ ${antiLazy}
 
 ---
 
-## 一、单项选择题（每题 X 分，共 Y 分）
-
-**1.** [真实题干内容]
-A. [选项]    B. [选项]    C. [选项]    D. [选项]
-
-**2.** [真实题干内容]
-A. [选项]    B. [选项]    C. [选项]    D. [选项]
-
-<!-- 按前端要求的数量生成 -->
-
-## 二、填空题（每题 X 分，共 Y 分）
-
-**3.** [题干] ______
-
-## 三、简答/计算题（每题 X 分，共 Y 分）
-
-**4.** [题干]
-（答题区：________________________）
-
-## 四、材料分析题（每题 X 分，共 Y 分）
-
-**阅读以下材料：**
-[编造不少于 150 字的真实${subjectName}材料文本]
-
-**5.** 根据材料回答：[问题]
-（答题区：________________________）
+${sections.student}
 ${customQuestion?.enabled && customQuestion.description
-    ? `\n## 五、自定义附加题（${customQuestion.description}）\n\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}\n\n**6.** [题干]\n（答题区：________________________）`
+    ? `\n## 自定义附加题（${customQuestion.description}）\n\n请按以下个性化需求生成 **${customQuestion.count} 道**真实、完整的题目：\n> ${customQuestion.description}`
     : ""}
-
----
-
-# 🏆 试卷标准答案及深度解析册
-
-> ⚠️ 教师专用 · 请勿发给学生
-
-## 一、单项选择题答案
-
-**[第1题]** 正确答案：X
-解析：（完整推理：为什么选X，其他选项错误原因，涉及的知识点）
-
-**[第2题]** 正确答案：X
-解析：...
-
-## 二、填空题答案
-
-**[第3题]** 正确答案：... | 解析：...
-
-## 三、简答/计算题答案
-
-**[第4题]** 参考答案：... | 评分要点与得分步骤：...
-
-## 四、材料分析题答案
-
-**[第5题]** 参考答案：... | 得分关键点：...
-${customQuestion?.enabled && customQuestion.description
-    ? `\n## 五、自定义附加题答案\n**[第6题]** 正确答案：... | 解析：...\n\n（按自定义要求生成 ${customQuestion.count} 道题及答案，延续上述题号）`
-    : ""}
+${answerSection}${noAnswerNote}
 `;
 }
 
@@ -333,6 +348,7 @@ function buildAdaptWrongQuestionPrompt(
   originalQuestion: string, subject: Subject | undefined,
   difficulty: Difficulty, grade: GradeLevel, count: number,
   textbookVersion?: string, gradeLevelTxt?: string, chapterName?: string,
+  generateAnswer?: boolean, generateExplanation?: boolean,
 ): string {
   const subjectName = subject ? SUBJECT_LABELS[subject] : "（请根据原题自行判断学科）";
   const gradeName = GRADE_LABELS[grade];
@@ -343,11 +359,19 @@ function buildAdaptWrongQuestionPrompt(
     ? `\n## 📚 教材大纲强制锁定\n- 教材版本：${textbookVersion || "不限"}\n- 适用年级/册别：${gradeLevelTxt || "不限"}\n- 核心章节/考点：${chapterName || "不限"}\n\n⚠️ 你生成的变式题必须严格匹配上述教材版本的知识范围和难度标准，禁止超纲。\n`
     : "";
 
+  const answerSection = generateAnswer
+    ? `\n\n---\n\n## 🔑 参考答案${generateExplanation ? "与深度解析" : ""}\n\n${generateExplanation ? "每题必须有：【正确答案】+ 【深度解析】（不少于 60 字，含解题步骤、思路与易错点分析）。" : "仅输出每题正确答案，不写解析。"}\n\n（按变式题号顺序给出所有答案${generateExplanation ? "和解析" : ""}。）`
+    : "";
+
+  const noAnswerNote = !generateAnswer
+    ? `\n\n## ❌ 严禁输出答案\n你本次只需要生成变式训练题部分。**绝对禁止输出任何答案、解析、参考答案。** 题目结束后立即停止输出，不得附加任何其他内容。`
+    : "";
+
   return `你是资深K12${subjectName}金牌出题官，同时也是历年真题命题分析专家。你擅长通过分析一道错题或真题，快速生成同考点、同难度的变式训练题。${textbookLock}
 
 # ⚡ 任务：举一反三 — 错题/真题变式改编
 
-请基于教师提供的以下原题，严格生成 **${count} 道**“同母题异构”的变式新题。
+请基于教师提供的以下原题，严格生成 **${count} 道**"同母题异构"的变式新题。
 
 ## 原题
 ${originalQuestion}
@@ -355,13 +379,13 @@ ${originalQuestion}
 ## 改编要求
 1. **同考点、同难度、同题型**：保持原题的核心考点、题型结构（选择题/填空题/解答题）和难度（${diffName}）不变。
 2. **仅更换情境、数据或条件**：如原题为计算题，更换数字和场景；原题为选择题，更换选项的具体内容；原题为阅读理解，更换阅读材料但保留问题模式。
-3. **解析必须完整**：每道新题必须附带：【正确答案】和【深度解析】（解析不少于 60 字，完整写出推导过程、解题思路和易错点分析）。
+3. ${generateExplanation ? '**解析必须完整**：每道新题必须附带：【正确答案】和【深度解析】（解析不少于 60 字，完整写出推导过程、解题思路和易错点分析）。' : ''}
 4. **${subjectHint}**
 
 ## 防偷懒底线
 - 绝对禁止直接复制原题，必须体现出"变式"。
 - 绝对禁止使用"题干内容""选项A"等占位符。
-- 每道题的解析必须单独写，不能出现"同第X题""略"等偷懒表述。
+- ${generateExplanation ? '每道题的解析必须单独写，不能出现"同第X题""略"等偷懒表述。' : ''}
 
 ## 输出格式（纯 Markdown）
 
@@ -382,22 +406,7 @@ ${originalQuestion}
 
 ### 变式题 3
 [完整题目内容]
-
----
-
-## 🔑 参考答案与深度解析
-
-### 变式题 1
-**正确答案：** [答案]
-**解析：** [不少于 60 字的完整解析，含解题步骤与思路]
-
-### 变式题 2
-**正确答案：** [答案]
-**解析：** [不少于 60 字的完整解析]
-
-### 变式题 3
-**正确答案：** [答案]
-**解析：** [不少于 60 字的完整解析]
+${answerSection}${noAnswerNote}
 `;
 }
 
@@ -433,7 +442,7 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "无效请求体" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent, adaptWrongQuestion, adaptCount, textbookVersion, gradeLevel, chapterName, textbookSubject } = body as Record<string, unknown>;
+  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent, adaptWrongQuestion, adaptCount, textbookVersion, gradeLevel, chapterName, textbookSubject, extraRequirements, generateAnswer, generateExplanation } = body as Record<string, unknown>;
 
   if (!mod || !difficulty || !grade) {
     return new Response(JSON.stringify({ error: "缺少必要参数" }), { status: 400, headers: { "Content-Type": "application/json" } });
@@ -454,12 +463,15 @@ export async function POST(request: NextRequest) {
   let systemPrompt: string;
   let userPrompt: string;
 
+  // extraRequirements 作为额外约束注入到 user message 中
+  const extraConstraints = extraRequirements ? `\n\n✨ 用户额外要求：${extraRequirements}\n请务必满足以上额外要求。` : "";
+
   if (action === "simplify" || action === "advance") {
     if (!previousContent) {
       return new Response(JSON.stringify({ error: "微调需要 previousContent" }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
     systemPrompt = buildAdjustPrompt(action as "simplify" | "advance", previousContent as string);
-    userPrompt = `请对上述内容进行"${action === "simplify" ? "稍稍简化" : "稍稍拔高"}"处理，输出完整 JSON。`;
+    userPrompt = `请对上述内容进行"${action === "simplify" ? "稍稍简化" : "稍稍拔高"}"处理，输出完整 JSON。${extraConstraints}`;
   } else if (action === "adapt_wrong_question") {
     if (!adaptWrongQuestion) {
       return new Response(JSON.stringify({ error: "举一反三需要原题内容" }), { status: 400, headers: { "Content-Type": "application/json" } });
@@ -470,8 +482,10 @@ export async function POST(request: NextRequest) {
       textbookVersion as string | undefined,
       gradeLevel as string | undefined,
       chapterName as string | undefined,
+      (generateAnswer as boolean) || undefined,
+      (generateExplanation as boolean) || undefined,
     );
-    userPrompt = "请基于上述原题，按格式要求生成变式训练题。输出纯 Markdown，不要输出 JSON。";
+    userPrompt = `请基于上述原题，按格式要求生成变式训练题。输出纯 Markdown，不要输出 JSON。${extraConstraints}`;
   } else {
     systemPrompt = buildPrompt(
       effectiveTopic, effectiveSubject, mod as ModuleTab,
@@ -482,8 +496,10 @@ export async function POST(request: NextRequest) {
       gradeLevel as string | undefined,
       chapterName as string | undefined,
       textbookSubject as string | undefined,
+      (generateAnswer as boolean) || undefined,
+      (generateExplanation as boolean) || undefined,
     );
-    userPrompt = `请为【${effectiveSubject ? SUBJECT_LABELS[effectiveSubject] : textbookSubject || "学科"}·${effectiveTopic}】生成内容。${hasTextbook ? `\n\n再次确认：你生成的内容必须严格限定在${textbookSubject || ""} ${textbookVersion || ""} ${gradeLevel || ""} ${chapterName || ""}的范围内。` : ""}\n\n按上述格式输出纯 Markdown，不要输出 JSON。`;
+    userPrompt = `请为【${effectiveSubject ? SUBJECT_LABELS[effectiveSubject] : textbookSubject || "学科"}·${effectiveTopic}】生成内容。${hasTextbook ? `\n\n再次确认：你生成的内容必须严格限定在${textbookSubject || ""} ${textbookVersion || ""} ${gradeLevel || ""} ${chapterName || ""}的范围内。` : ""}${extraConstraints}\n\n按上述格式输出纯 Markdown，不要输出 JSON。`;
   }
 
   console.log(`[API/chat] subject=${subject} module=${mod} action=${action}`);

@@ -11,8 +11,6 @@ import {
   SUBJECT_LABELS,
   SUBJECT_QUESTION_TYPES,
   MODULE_TABS,
-  DIFFICULTY_LABELS,
-  GRADE_LABELS,
 } from "@/types";
 
 export interface FormSubmitData {
@@ -34,6 +32,11 @@ export interface FormSubmitData {
   chapterName?: string;
   // 生成模式
   generateMode?: "knowledge" | "textbook";
+  // 额外要求
+  extraRequirements?: string;
+  // 答案控制
+  generateAnswer?: boolean;
+  generateExplanation?: boolean;
 }
 
 interface Props {
@@ -52,9 +55,9 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   // ── Topic ──
   const [topic, setTopic] = useState("");
 
-  // ── Difficulty & Grade ──
-  const [difficulty, setDifficulty] = useState<Difficulty>("standard");
-  const [grade, setGrade] = useState<GradeLevel>("middle");
+  // ── Difficulty & Grade (defaults, no UI)
+  const [difficulty] = useState<Difficulty>("standard" as Difficulty);
+  const [grade] = useState<GradeLevel>("middle" as GradeLevel);
 
   // ── Question Config ──
   const [questionConfigs, setQuestionConfigs] = useState<QuestionTypeConfig[]>([]);
@@ -74,8 +77,29 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   const [textbookGrade, setTextbookGrade] = useState("");
   const [textbookChapter, setTextbookChapter] = useState("");
 
-  // 科目由 AI 自行判断，前端不再传递 subject
-  // 初始化默认题型（使用通用模板）
+  // ── 额外要求 ──
+  const [extraRequirements, setExtraRequirements] = useState("");
+
+  // ── 答案控制 ──
+  const [generateAnswer, setGenerateAnswer] = useState(false);
+  const [generateExplanation, setGenerateExplanation] = useState(false);
+
+  // 科目由 AI 自行判断，前端根据教材科目联动题型
+  const resolveSubjectFromLabel = (label: string): Subject | undefined =>
+    (Object.entries(SUBJECT_LABELS) as [Subject, string][]).find(([, v]) => v === label)?.[0];
+
+  // 教材科目变化 → 同步更新题型
+  useEffect(() => {
+    if (!textbookSubject) return;
+    const s = resolveSubjectFromLabel(textbookSubject);
+    if (!s) return;
+    const types = SUBJECT_QUESTION_TYPES[s];
+    setQuestionConfigs(
+      types.map((t) => ({ type: t.value, label: t.label, count: 3 })),
+    );
+  }, [textbookSubject]);
+
+  // 初始默认题型（通用）
   useEffect(() => {
     const types = SUBJECT_QUESTION_TYPES["english"];
     setQuestionConfigs(
@@ -110,6 +134,17 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   // 20 题软限制弹窗
   const [showLimitModal, setShowLimitModal] = useState(false);
 
+  // 知识点模式下不传教材参数，避免锁定学科
+  const textbookPayload =
+    generateMode === "textbook"
+      ? {
+          textbookVersion: textbookVersion || undefined,
+          gradeLevel: textbookGrade || undefined,
+          chapterName: textbookChapter.trim() || undefined,
+          textbookSubject: textbookSubject || undefined,
+        }
+      : {};
+
   const handleSubmit = () => {
     if (!canSubmit) return;
     if (showQuestionPanel && totalQuestions > 20) {
@@ -125,11 +160,11 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       ...(customEnabled && customDescription.trim()
         ? { customQuestion: { enabled: true, description: customDescription.trim(), count: customCount } }
         : {}),
-      textbookVersion: textbookVersion || undefined,
-      gradeLevel: textbookGrade || undefined,
-      chapterName: textbookChapter.trim() || undefined,
-      textbookSubject: textbookSubject || undefined,
+      ...textbookPayload,
       generateMode,
+      extraRequirements: extraRequirements.trim() || undefined,
+      generateAnswer,
+      generateExplanation: generateAnswer ? generateExplanation : undefined,
     });
   };
 
@@ -144,11 +179,11 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       ...(customEnabled && customDescription.trim()
         ? { customQuestion: { enabled: true, description: customDescription.trim(), count: customCount } }
         : {}),
-      textbookVersion: textbookVersion || undefined,
-      gradeLevel: textbookGrade || undefined,
-      chapterName: textbookChapter.trim() || undefined,
-      textbookSubject: textbookSubject || undefined,
+      ...textbookPayload,
       generateMode,
+      extraRequirements: extraRequirements.trim() || undefined,
+      generateAnswer,
+      generateExplanation: generateAnswer ? generateExplanation : undefined,
     });
   };
 
@@ -166,10 +201,11 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       action: "adapt_wrong_question",
       adaptWrongQuestion: adaptOriginalQuestion.trim(),
       adaptCount,
-      textbookVersion: textbookVersion || undefined,
-      gradeLevel: textbookGrade || undefined,
-      chapterName: textbookChapter.trim() || undefined,
+      ...textbookPayload,
       generateMode,
+      extraRequirements: extraRequirements.trim() || undefined,
+      generateAnswer,
+      generateExplanation: generateAnswer ? generateExplanation : undefined,
     });
   };
 
@@ -315,46 +351,20 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
         </div>
       </div>
 
-      {/* ── Difficulty ── */}
+      {/* ── 额外要求 ── */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">难度选择</label>
-        <div className="grid grid-cols-1 gap-2">
-          {(Object.entries(DIFFICULTY_LABELS) as [Difficulty, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setDifficulty(key)}
-              className={cn(
-                "w-full text-left px-4 py-3 rounded-xl border text-sm font-medium transition-all",
-                difficulty === key
-                  ? "bg-primary-50 border-primary-500 text-primary-700"
-                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Grade ── */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">学段选择</label>
-        <div className="grid grid-cols-3 gap-2">
-          {(Object.entries(GRADE_LABELS) as [GradeLevel, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setGrade(key)}
-              className={cn(
-                "px-3 py-2.5 rounded-xl border text-sm font-medium text-center transition-all",
-                grade === key
-                  ? "bg-primary-50 border-primary-500 text-primary-700"
-                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          ✨ 额外要求
+        </label>
+        <textarea
+          value={extraRequirements}
+          onChange={(e) => setExtraRequirements(e.target.value)}
+          placeholder="可自由输入额外要求，例如：需要包含3道应用题、出题风格贴近中考真题…（选填）"
+          rows={2}
+          className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm resize-none
+                     focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+                     placeholder:text-gray-400 transition-all"
+        />
       </div>
 
       {/* ── Dynamic Question Type Panel (quiz_homework / custom_exam only) ── */}
@@ -495,8 +505,35 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
         </div>
       )}
 
-      {/* ── Generate / Stop Button ── */}
-      <div className="space-y-2">
+      {/* ── 答案控制 + Generate ── */}
+      <div className="space-y-3">
+        {/* 答案控制勾选项 */}
+        <div className="flex items-center gap-4 text-xs text-gray-600">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={generateAnswer}
+              onChange={(e) => {
+                setGenerateAnswer(e.target.checked);
+                if (!e.target.checked) setGenerateExplanation(false);
+              }}
+              className="w-3.5 h-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span>📝 生成答案</span>
+          </label>
+          {generateAnswer && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={generateExplanation}
+                onChange={(e) => setGenerateExplanation(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <span>🔍 含深度解析</span>
+            </label>
+          )}
+        </div>
+
         {isGenerating && onStop && (
           <button
             onClick={onStop}
