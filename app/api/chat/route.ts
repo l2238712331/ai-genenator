@@ -96,21 +96,66 @@ ${antiLazy}
 
 严格按 [🎯导入 → 📖讲解 → ✋互动 → 🌟总结] 四步展开。
 
-### 🎯 导入环节（5分钟）
-**教师行为：**（1-2句描述）
-**老师说：** "..."
+### 格式强制规范
 
-### 📖 新知讲授（15分钟）
-**教师行为：**（1-2句描述）
-**老师说：** "..."
+1. **教师行为与台词必须视觉分离**：
+   - 教师行为独占一行：**💡 教师行为**：在黑板上写出例题，巡视课堂。
+   - 老师要说的话必须用 Markdown 块引用（>）包裹，加 🗣️ 图标：
+     > 🗣️ **老师说**："现在请同学们..."
 
-### ✋ 互动练习（8分钟）
-**教师行为：**（1-2句描述）
-**老师说：** "..."
+2. **数学/理科公式强制使用 LaTeX 格式**：
+   - 行内公式：$3(x+2)-2(x-1)=8$
+   - 独立步骤必须换行，使用 $$...$$ 逐行对齐：
+     $$3x+6-2x+2=8 \\quad \\text{（去括号）}$$
+     $$(3x-2x)+(6+2)=8 \\quad \\text{（移项）}$$
+     $$x+8=8$$
+     $$x=0$$
+   - 关键易错点必须用 $\\quad\\text{（注释）}$ 标注
 
-### 🌟 课堂总结（5分钟）
-**教师行为：**（1-2句描述）
-**老师说：** "..."
+3. **时间标签**：每个环节标题后使用 \`⏱ X分钟\` 标签
+
+4. **学生反应与预设错误**：使用无序列表 * 独立展示，不与教师行为混行
+
+---
+
+### 🎯 导入环节 \`⏱ 5分钟\`
+
+**💡 教师行为**：（具体描述教师在做什么，如展示图片、播放视频、提出问题等）
+
+> 🗣️ **老师说**："（写3-5句真实、自然的课堂导入话术，包括与学生的互动提问）"
+
+* 🧑‍🎓 学生预设反应：（学生可能的回答或反应）
+* 💭 预设错误/困惑：（如有）
+
+### 📖 新知讲授 \`⏱ 15分钟\`
+
+**💡 教师行为**：（板书例题、演示推导、展示定义等）
+
+> 🗣️ **老师说**："（写5-8句讲授话术，包括提问、引导、定义讲解）"
+
+* 📝 板书内容：（列出黑板上的核心公式、定义或例题）
+* 🔍 关键辨析：（易混淆概念对比，如需要）
+
+（如有多个知识点，每个知识点复制上述模块）
+
+### ✋ 互动练习 \`⏱ 8分钟\`
+
+**💡 教师行为**：（布置练习题、巡视、邀请板演、纠错等）
+
+> 🗣️ **老师说**："（写3-5句互动话术，包括出题、提问、引导）"
+
+* ✏️ 练习题 1：（完整题目）
+* ✏️ 练习题 2：（完整题目）
+* 🧑‍🎓 预设学生错误：（典型错误类型及纠错话术）
+
+### 🌟 课堂总结 \`⏱ 5分钟\`
+
+**💡 教师行为**：（回顾板书、提问总结、布置作业等）
+
+> 🗣️ **老师说**："（写3-5句总结话术，回顾核心知识点）"
+
+* 📌 本节要点回顾：（3-4条）
+* 📚 课后任务：（简要说明）
 `;
   }
 
@@ -273,6 +318,73 @@ ${customQuestion?.enabled && customQuestion.description
 `;
 }
 
+function buildAdaptWrongQuestionPrompt(
+  originalQuestion: string, subject: Subject,
+  difficulty: Difficulty, grade: GradeLevel, count: number,
+): string {
+  const subjectName = SUBJECT_LABELS[subject];
+  const gradeName = GRADE_LABELS[grade];
+  const diffName = DIFF_LABELS[difficulty];
+  const subjectHint = SUBJECT_HINTS[subject] || "";
+
+  return `你是资深K12${subjectName}金牌出题官，同时也是历年真题命题分析专家。你擅长通过分析一道错题或真题，快速生成同考点、同难度的变式训练题。
+
+# ⚡ 任务：举一反三 — 错题/真题变式改编
+
+请基于教师提供的以下原题，严格生成 **${count} 道**“同母题异构”的变式新题。
+
+## 原题
+${originalQuestion}
+
+## 改编要求
+1. **同考点、同难度、同题型**：保持原题的核心考点、题型结构（选择题/填空题/解答题）和难度（${diffName}）不变。
+2. **仅更换情境、数据或条件**：如原题为计算题，更换数字和场景；原题为选择题，更换选项的具体内容；原题为阅读理解，更换阅读材料但保留问题模式。
+3. **解析必须完整**：每道新题必须附带：【正确答案】和【深度解析】（解析不少于 60 字，完整写出推导过程、解题思路和易错点分析）。
+4. **${subjectHint}**
+
+## 防偷懒底线
+- 绝对禁止直接复制原题，必须体现出"变式"。
+- 绝对禁止使用"题干内容""选项A"等占位符。
+- 每道题的解析必须单独写，不能出现"同第X题""略"等偷懒表述。
+
+## 输出格式（纯 Markdown）
+
+# ⚡ 举一反三：${originalQuestion.slice(0, 20)}... — 变式训练卷
+
+> 原题：${originalQuestion}
+> 科目：${subjectName}  |  学段：${gradeName}  |  难度：${diffName}
+
+---
+
+## 📝 变式训练题
+
+### 变式题 1
+[完整题目内容]
+
+### 变式题 2
+[完整题目内容]
+
+### 变式题 3
+[完整题目内容]
+
+---
+
+## 🔑 参考答案与深度解析
+
+### 变式题 1
+**正确答案：** [答案]
+**解析：** [不少于 60 字的完整解析，含解题步骤与思路]
+
+### 变式题 2
+**正确答案：** [答案]
+**解析：** [不少于 60 字的完整解析]
+
+### 变式题 3
+**正确答案：** [答案]
+**解析：** [不少于 60 字的完整解析]
+`;
+}
+
 function buildAdjustPrompt(direction: "simplify" | "advance", previousRaw: string): string {
   const adj = direction === "simplify" ? "降低" : "提升";
   const strat = direction === "simplify"
@@ -305,7 +417,7 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "无效请求体" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent } = body as Record<string, unknown>;
+  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent, adaptWrongQuestion, adaptCount } = body as Record<string, unknown>;
 
   if (!topic || !subject || !mod || !difficulty || !grade) {
     return new Response(JSON.stringify({ error: "缺少必要参数" }), { status: 400, headers: { "Content-Type": "application/json" } });
@@ -320,6 +432,15 @@ export async function POST(request: NextRequest) {
     }
     systemPrompt = buildAdjustPrompt(action as "simplify" | "advance", previousContent as string);
     userPrompt = `请对上述内容进行"${action === "simplify" ? "稍稍简化" : "稍稍拔高"}"处理，输出完整 JSON。`;
+  } else if (action === "adapt_wrong_question") {
+    if (!adaptWrongQuestion) {
+      return new Response(JSON.stringify({ error: "举一反三需要原题内容" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    systemPrompt = buildAdaptWrongQuestionPrompt(
+      adaptWrongQuestion as string, subject as Subject,
+      difficulty as Difficulty, grade as GradeLevel, (adaptCount as number) || 1,
+    );
+    userPrompt = "请基于上述原题，按格式要求生成变式训练题。输出纯 Markdown，不要输出 JSON。";
   } else {
     systemPrompt = buildPrompt(
       topic as string, subject as Subject, mod as ModuleTab,
@@ -388,40 +509,27 @@ export async function POST(request: NextRequest) {
         // ── 完成：所有模块统一 rawMarkdown 直传 ──
         const title = `${topic} — ${SUBJECT_LABELS[subject as string]}`;
 
-        // 教案尝试提取标题和核心目标（可选优化，失败不影响渲染）
+        // 从 Markdown 中提取一级标题
         let extractedTitle = title;
-        const sections: { emoji: string; title: string; body: string }[] = [];
+        const titleMatch = fullContent.match(/^# (.+)$/m);
+        if (titleMatch) extractedTitle = titleMatch[1].trim();
 
-        if (mod === "lesson_plan") {
-          // 从 Markdown 中提取一级标题
-          const titleMatch = fullContent.match(/^# (.+)$/m);
-          if (titleMatch) extractedTitle = titleMatch[1].trim();
-
-          // 提取四步流程为 sections
-          const stepRegex = /### (🎯|📖|✋|🌟) (.+?)（(\d+)分钟\)\n\*\*教师行为：\*\*(.+?)\n\*\*老师说：\*\*\s*"([\s\S]*?)"/g;
-          let m: RegExpExecArray | null;
-          while ((m = stepRegex.exec(fullContent)) !== null) {
-            sections.push({
-              emoji: m[1],
-              title: `${m[2]}（${m[3]}分钟）`,
-              body: `**教师行为：**${m[4].trim()}\n\n**老师说：** "${m[5].trim()}"`,
-            });
-          }
-        }
+        // 举一反三 / 非教案模块强制走 rawMarkdown 直渲路径
+        const effectiveModule = action === "adapt_wrong_question" ? "custom_exam" : mod;
 
         const meta = {
           title: extractedTitle,
-          subject, module: mod,
+          subject, module: effectiveModule,
           coreObjectives: { vocabulary: [] as { word: string; meaning: string }[], keyStructures: [] as string[], keyPoints: "", difficultPoints: "" },
-          sections,
+          sections: [] as { emoji: string; title: string; body: string }[],
           exercises: "",
-          quiz: { studentPaper: mod === "lesson_plan" ? "" : fullContent },
+          quiz: { studentPaper: effectiveModule === "lesson_plan" ? "" : fullContent },
           layeredHomework: { basic: "", advanced: "" },
           answerKey: { content: "" },
           rawMarkdown: fullContent,
         };
 
-        console.log(`[API/chat] OK — module=${mod} len=${fullContent.length} sections=${sections.length}`);
+        console.log(`[API/chat] OK — module=${effectiveModule} len=${fullContent.length}`);
         controller.enqueue(encoder.encode(`data: __DONE__\n\n`));
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(meta)}\n\n`));
       } catch (e) {

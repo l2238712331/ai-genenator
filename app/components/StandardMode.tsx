@@ -1,25 +1,43 @@
 "use client";
 
 import { GeneratedContent } from "@/types";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 
 interface Props {
   content: GeneratedContent;
+  onStartLecture?: (c: GeneratedContent) => void;
 }
 
-export function StandardMode({ content }: Props) {
+export function StandardMode({ content, onStartLecture }: Props) {
   const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
-  const handleCopy = async () => {
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyPlain = async () => {
     try {
-      await navigator.clipboard.writeText(content.rawMarkdown);
+      // 复制渲染后的纯文本 — KaTeX 公式用 textContent 避免换行
+      const text = contentRef.current ? extractPlainText(contentRef.current) : content.rawMarkdown;
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      showToast("复制成功！您可以直接粘贴到微信、备忘录或班级群中。");
     } catch {
-      // fallback
+      showToast("复制失败，请尝试手动选择文本后复制。");
     }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const handleExportWord = () => {
@@ -59,9 +77,20 @@ export function StandardMode({ content }: Props) {
             <span className="hidden sm:inline">📄 导出为 Word</span>
             <span className="sm:hidden">Word</span>
           </button>
-          {/* Copy */}
+          {/* Lecture Mode — 非教案模块才显示 */}
+          {content.module !== "lesson_plan" && onStartLecture && (
+            <button
+              onClick={() => onStartLecture(content)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-all"
+            >
+              <span className="text-sm">📺</span>
+              <span className="hidden sm:inline">投屏讲评课件</span>
+              <span className="sm:hidden">投屏</span>
+            </button>
+          )}
+          {/* Copy Plain Text */}
           <button
-            onClick={handleCopy}
+            onClick={handleCopyPlain}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
               copied
@@ -73,27 +102,33 @@ export function StandardMode({ content }: Props) {
               <>✓ 已复制</>
             ) : (
               <>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <rect x="9" y="9" width="13" height="13" rx="2" strokeWidth="2" />
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeWidth="2" />
-                </svg>
-                <span className="hidden sm:inline">一键复制全文</span>
+                <span className="text-sm">📋</span>
+                <span className="hidden sm:inline">复制题目文本</span>
                 <span className="sm:hidden">复制</span>
               </>
             )}
+          </button>
+          {/* Print / Save PDF */}
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition-all"
+          >
+            <span className="text-sm">📥</span>
+            <span className="hidden sm:inline">保存 PDF</span>
+            <span className="sm:hidden">PDF</span>
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="p-6 md:p-8 space-y-6">
+      <div ref={contentRef} className="p-6 md:p-8 space-y-6 print-content">
         {/* Title */}
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900 leading-snug">
           {content.title}
         </h1>
 
-        {content.module === "lesson_plan" ? (
-          /* ═══ 教案模块：结构化组件渲染 ═══ */
+        {content.module === "lesson_plan" && (content.sections.length > 0 || (content.coreObjectives && (content.coreObjectives.vocabulary?.length || content.coreObjectives.keyStructures?.length || content.coreObjectives.keyPoints || content.coreObjectives.difficultPoints))) ? (
+          /* ═══ 教案模块（旧格式兼容）：结构化组件渲染 ═══ */
           <>
             {/* Core Objectives */}
             {content.coreObjectives && (content.coreObjectives.vocabulary?.length || content.coreObjectives.keyStructures?.length || content.coreObjectives.keyPoints || content.coreObjectives.difficultPoints) && (
@@ -141,15 +176,71 @@ export function StandardMode({ content }: Props) {
             prose-hr:my-6 prose-hr:border-dashed prose-hr:border-gray-300
             [&_del]:text-gray-400 [&_hr]:border-t-2 [&_hr]:border-gray-300
           ">
-            <ReactMarkdown>{content.rawMarkdown}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{content.rawMarkdown}</ReactMarkdown>
           </div>
         )}
       </div>
+
+      {/* ── Toast 提示 ── */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm rounded-xl px-5 py-3 shadow-xl animate-in slide-in-from-bottom-4 fade-in duration-300 max-w-xs text-center leading-relaxed">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Core Objectives Sub-Components ──────────────────────────
+
+// ══════════════════════════════════════════════
+// 复制时提取纯文本：KaTeX 公式用 textContent 避免换行
+// ══════════════════════════════════════════════
+
+function extractPlainText(el: HTMLElement): string {
+  const parts: string[] = [];
+  walkText(el, parts);
+  return parts.join("").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function walkText(node: Node, parts: string[]): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    parts.push(node.textContent || "");
+    return;
+  }
+  if (!(node instanceof HTMLElement)) return;
+
+  // KaTeX 元素 → 用 textContent 拼合，压缩多余空格
+  if (
+    node.classList.contains("katex") ||
+    node.classList.contains("katex-display") ||
+    node.classList.contains("katex-html")
+  ) {
+    const compact = (node.textContent || "").replace(/\s+/g, " ").trim();
+    parts.push(compact);
+    return;
+  }
+
+  // 块级元素集合
+  const blockTags = new Set(["DIV", "P", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BR", "HR", "PRE", "TABLE", "TR", "BLOCKQUOTE", "SECTION", "ARTICLE", "HEADER", "FOOTER", "UL", "OL"]);
+  const isBlock = blockTags.has(node.tagName);
+
+  // 内联元素（非块级非 KaTeX）→ 直接取 textContent，不递归，避免 span 间多余空白
+  if (!isBlock) {
+    parts.push((node.textContent || "").replace(/\s+/g, " ").replace(/^ /, ""));
+    return;
+  }
+
+  // 块级元素 → 前后加换行，递归子节点
+
+  if (isBlock && parts.length > 0) parts.push("\n");
+
+  for (const child of node.childNodes) {
+    walkText(child, parts);
+  }
+
+  if (isBlock) parts.push("\n");
+}
 
 function CoreObjectivesSection({
   obj,

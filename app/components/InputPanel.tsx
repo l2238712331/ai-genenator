@@ -24,6 +24,10 @@ export interface FormSubmitData {
   grade: GradeLevel;
   questionConfigs: QuestionTypeConfig[];
   customQuestion?: { enabled: boolean; description: string; count: number };
+  // 举一反三改编
+  action?: "generate" | "simplify" | "advance" | "adapt_wrong_question";
+  adaptWrongQuestion?: string;
+  adaptCount?: number;
 }
 
 interface Props {
@@ -51,6 +55,10 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   const [customEnabled, setCustomEnabled] = useState(false);
   const [customDescription, setCustomDescription] = useState("");
   const [customCount, setCustomCount] = useState(1);
+
+  // ── Adapt Wrong Question ──
+  const [adaptOriginalQuestion, setAdaptOriginalQuestion] = useState("");
+  const [adaptCount, setAdaptCount] = useState(1);
 
   // 切换科目时重置题型
   useEffect(() => {
@@ -119,7 +127,26 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
     });
   };
 
+  // 举一反三改编提交
+  const canAdapt = adaptOriginalQuestion.trim().length > 0 && !isGenerating;
+
+  const handleAdaptSubmit = () => {
+    if (!canAdapt) return;
+    onGenerate({
+      topic: adaptOriginalQuestion.trim(),
+      subject,
+      module: activeModule,
+      difficulty,
+      grade,
+      questionConfigs: [],
+      action: "adapt_wrong_question",
+      adaptWrongQuestion: adaptOriginalQuestion.trim(),
+      adaptCount,
+    });
+  };
+
   return (
+    <>
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-5">
       <h2 className="text-base md:text-lg font-semibold text-gray-900 flex items-center gap-2">
         <span>⚙️</span> 输入控制面板
@@ -322,34 +349,38 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
             <div className="space-y-2 bg-indigo-50/50 rounded-xl p-3 border border-indigo-100 animate-in slide-in-from-top-1 duration-200">
               <textarea
                 value={customDescription}
-                onChange={(e) => setCustomDescription(e.target.value)}
+                onChange={(e) => setCustomDescription(e.target.value.slice(0, 100))}
                 placeholder="请输入您需要的个性化题型（例如：结合时政热点的微写作、模仿XX高考真题的压轴几何题...）"
                 rows={3}
+                maxLength={100}
                 className="w-full text-sm border border-indigo-200 rounded-lg p-3 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-none placeholder:text-gray-400"
               />
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">生成数量：</span>
-                <button
-                  onClick={() => setCustomCount((c) => Math.max(1, c - 1))}
-                  className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center transition-all"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  value={customCount}
-                  onChange={(e) => setCustomCount(parseInt(e.target.value) || 1)}
-                  className="w-12 text-center text-sm font-semibold text-indigo-700 border border-indigo-200 rounded-lg py-1 focus:outline-none focus:border-indigo-400"
-                  min={1}
-                  max={20}
-                />
-                <button
-                  onClick={() => setCustomCount((c) => Math.min(20, c + 1))}
-                  className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center transition-all"
-                >
-                  +
-                </button>
-                <span className="text-xs text-gray-400">题</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">生成数量：</span>
+                  <button
+                    onClick={() => setCustomCount((c) => Math.max(1, c - 1))}
+                    className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center transition-all"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    value={customCount}
+                    onChange={(e) => setCustomCount(parseInt(e.target.value) || 1)}
+                    className="w-12 text-center text-sm font-semibold text-indigo-700 border border-indigo-200 rounded-lg py-1 focus:outline-none focus:border-indigo-400"
+                    min={1}
+                    max={20}
+                  />
+                  <button
+                    onClick={() => setCustomCount((c) => Math.min(20, c + 1))}
+                    className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 text-sm font-bold flex items-center justify-center transition-all"
+                  >
+                    +
+                  </button>
+                  <span className="text-xs text-gray-400">题</span>
+                </div>
+                <span className="text-[10px] text-gray-400">{customDescription.length}/100</span>
               </div>
             </div>
           )}
@@ -422,5 +453,55 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
         </div>
       )}
     </div>
+
+    {/* ⚡ 举一反三改编 — 独立卡片 */}
+    <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-sm overflow-hidden">
+      <div className="bg-gradient-to-r from-amber-400 to-orange-400 px-5 py-3">
+        <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+          ⚡ 错题/真题一键改编（举一反三）
+        </h3>
+      </div>
+      <div className="p-4 space-y-3">
+        <textarea
+          value={adaptOriginalQuestion}
+          onChange={(e) => setAdaptOriginalQuestion(e.target.value)}
+          placeholder="请将难倒学生的经典错题、期中/期末真题原题粘贴到这里……"
+          rows={4}
+          className="w-full text-sm border border-gray-200 rounded-lg p-3 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 resize-none placeholder:text-gray-400 bg-gray-50"
+        />
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-600 font-medium">变式数量：</span>
+          {[1, 2, 3].map((n) => (
+            <button
+              key={n}
+              onClick={() => setAdaptCount(n)}
+              className={cn(
+                "w-10 h-8 rounded-lg text-sm font-semibold transition-all",
+                adaptCount === n
+                  ? "bg-amber-500 text-white shadow-sm"
+                  : "bg-white border border-gray-200 text-gray-600 hover:bg-amber-50",
+              )}
+            >
+              {n}
+            </button>
+          ))}
+          <span className="text-xs text-gray-400 ml-auto">{adaptOriginalQuestion.length} 字</span>
+        </div>
+        <button
+          onClick={handleAdaptSubmit}
+          disabled={!canAdapt}
+          className={cn(
+            "w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-1.5 active:scale-[0.98]",
+            canAdapt
+              ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm shadow-amber-200"
+              : "bg-gray-200 text-gray-400 cursor-not-allowed",
+            isGenerating && "hidden",
+          )}
+        >
+          <span>✨</span> 开始举一反三变式生成
+        </button>
+      </div>
+    </div>
+    </>
   );
 }

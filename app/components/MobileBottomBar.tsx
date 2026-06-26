@@ -10,15 +10,26 @@ interface Props {
 
 export function MobileBottomBar({ content }: Props) {
   const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const handleCopy = async () => {
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyPlain = async () => {
     try {
       await navigator.clipboard.writeText(content.rawMarkdown);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      showToast("复制成功！您可以直接粘贴到微信、备忘录或班级群中。");
     } catch {
-      // fallback
+      showToast("复制失败，请尝试手动选择文本后复制。");
     }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const handleExportWord = () => {
@@ -51,50 +62,46 @@ export function MobileBottomBar({ content }: Props) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white border-t border-gray-200 shadow-lg safe-area-bottom">
-      <div className="grid grid-cols-3 gap-2 px-3 py-3">
+      <div className="grid grid-cols-4 gap-1.5 px-2 py-2.5">
         <button
           onClick={handleExportWord}
-          className="flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 transition-all active:scale-95"
+          className="flex items-center justify-center gap-0.5 py-2.5 rounded-xl text-[11px] font-semibold bg-blue-50 text-blue-700 transition-all active:scale-95 flex-col"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" strokeWidth="2" />
-            <polyline points="14,2 14,8 20,8" strokeWidth="2" />
-            <line x1="16" y1="13" x2="8" y2="13" strokeWidth="2" />
-            <line x1="16" y1="17" x2="8" y2="17" strokeWidth="2" />
-          </svg>
+          <span className="text-sm">📄</span>
           Word
         </button>
         <button
-          onClick={handleCopy}
+          onClick={handleCopyPlain}
           className={cn(
-            "flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-semibold transition-all active:scale-95",
-            copied ? "bg-green-500 text-white" : "bg-gray-800 text-white",
+            "flex items-center justify-center gap-0.5 py-2.5 rounded-xl text-[11px] font-semibold transition-all active:scale-95 flex-col",
+            copied ? "bg-green-500 text-white" : "bg-gray-100 text-gray-700",
           )}
         >
-          {copied ? (
-            <>✓ 已复制</>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="9" y="9" width="13" height="13" rx="2" strokeWidth="2" />
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeWidth="2" />
-              </svg>
-              复制
-            </>
-          )}
+          <span className="text-sm">{copied ? "✓" : "📋"}</span>
+          {copied ? "已复制" : "复制"}
+        </button>
+        <button
+          onClick={handlePrint}
+          className="flex items-center justify-center gap-0.5 py-2.5 rounded-xl text-[11px] font-semibold bg-purple-50 text-purple-700 transition-all active:scale-95 flex-col"
+        >
+          <span className="text-sm">📥</span>
+          保存PDF
         </button>
         <button
           onClick={handleExport}
-          className="flex items-center justify-center gap-1 py-2.5 rounded-xl text-xs font-semibold bg-primary-600 text-white transition-all active:scale-95"
+          className="flex items-center justify-center gap-0.5 py-2.5 rounded-xl text-[11px] font-semibold bg-primary-600 text-white transition-all active:scale-95 flex-col"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeWidth="2" />
-            <polyline points="7,10 12,15 17,10" strokeWidth="2" />
-            <line x1="12" y1="15" x2="12" y2="3" strokeWidth="2" />
-          </svg>
+          <span className="text-sm">📱</span>
           H5
         </button>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="absolute -top-16 left-4 right-4 bg-gray-900 text-white text-xs rounded-xl px-4 py-2.5 shadow-lg text-center leading-relaxed animate-in slide-in-from-bottom-2 fade-in">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

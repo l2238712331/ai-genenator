@@ -6,11 +6,12 @@ import { H5Mode } from "./H5Mode";
 
 interface Props {
   content: GeneratedContent;
+  onStartLecture?: (c: GeneratedContent) => void;
 }
 
 import { useState } from "react";
 
-export function PreviewArea({ content }: Props) {
+export function PreviewArea({ content, onStartLecture }: Props) {
   const [mode, setMode] = useState<ViewMode>("standard");
 
   return (
@@ -35,7 +36,7 @@ export function PreviewArea({ content }: Props) {
 
       {/* Mode Content */}
       {mode === "standard" ? (
-        <StandardMode content={content} />
+        <StandardMode content={content} onStartLecture={onStartLecture} />
       ) : (
         <H5Mode content={content} />
       )}

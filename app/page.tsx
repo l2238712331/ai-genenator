@@ -5,6 +5,7 @@ import { InputPanel, type FormSubmitData } from "./components/InputPanel";
 import { PreviewArea } from "./components/PreviewArea";
 import { MobileBottomBar } from "./components/MobileBottomBar";
 import { SkeletonLoader } from "./components/SkeletonLoader";
+import { LectureModal } from "./components/LectureModal";
 import { generateContent, adjustContent } from "@/lib/mockAi";
 import type { GeneratedContent } from "@/types";
 
@@ -14,6 +15,13 @@ export default function HomePage() {
   const [adjustDirection, setAdjustDirection] = useState<"simplify" | "advance" | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+
+  // ── 投屏讲评状态 ──
+  const [lectureContent, setLectureContent] = useState<GeneratedContent | null>(null);
+
+  const handleStartLecture = useCallback((c: GeneratedContent) => {
+    setLectureContent(c);
+  }, []);
 
   // 停止生成
   const handleStop = useCallback(() => {
@@ -127,7 +135,7 @@ export default function HomePage() {
                 <SkeletonLoader />
               )
             ) : content ? (
-              <PreviewArea content={content} />
+              <PreviewArea content={content} onStartLecture={handleStartLecture} />
             ) : (
               <EmptyState />
             )}
@@ -136,6 +144,15 @@ export default function HomePage() {
       </main>
 
       {content && !isGenerating && <MobileBottomBar content={content} />}
+
+      {/* ── 投屏讲评模式 ── */}
+      {lectureContent && (
+        <LectureModal
+          rawMarkdown={lectureContent.rawMarkdown}
+          title={lectureContent.title}
+          onClose={() => setLectureContent(null)}
+        />
+      )}
     </div>
   );
 }

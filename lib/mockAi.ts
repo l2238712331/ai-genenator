@@ -17,7 +17,7 @@ interface ChatAPIOptions {
 }
 
 async function callChatAPI(
-  data: FormSubmitData & { action?: "generate" | "simplify" | "advance"; previousContent?: string },
+  data: FormSubmitData & { action?: "generate" | "simplify" | "advance" | "adapt_wrong_question"; previousContent?: string },
   options?: ChatAPIOptions,
 ): Promise<GeneratedContent> {
   const response = await fetch("/api/chat", {
@@ -33,6 +33,8 @@ async function callChatAPI(
       customQuestion: data.customQuestion || undefined,
       action: data.action || "generate",
       previousContent: data.previousContent || undefined,
+      adaptWrongQuestion: data.adaptWrongQuestion || undefined,
+      adaptCount: data.adaptCount || undefined,
     }),
     signal: options?.signal,
   });
