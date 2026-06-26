@@ -28,6 +28,11 @@ export interface FormSubmitData {
   action?: "generate" | "simplify" | "advance" | "adapt_wrong_question";
   adaptWrongQuestion?: string;
   adaptCount?: number;
+  // 教材大纲同步
+  textbookSubject?: string;
+  textbookVersion?: string;
+  gradeLevel?: string;
+  chapterName?: string;
 }
 
 interface Props {
@@ -60,6 +65,12 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   const [adaptOriginalQuestion, setAdaptOriginalQuestion] = useState("");
   const [adaptCount, setAdaptCount] = useState(1);
 
+  // ── 教材大纲同步 ──
+  const [textbookSubject, setTextbookSubject] = useState("");
+  const [textbookVersion, setTextbookVersion] = useState("");
+  const [textbookGrade, setTextbookGrade] = useState("");
+  const [textbookChapter, setTextbookChapter] = useState("");
+
   // 切换科目时重置题型
   useEffect(() => {
     const types = SUBJECT_QUESTION_TYPES[subject];
@@ -88,7 +99,9 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
   const showQuestionPanel = activeModule === "quiz_homework" || activeModule === "custom_exam";
   const totalQuestions = selectedConfigs.reduce((sum, q) => sum + q.count, 0);
 
-  const canSubmit = topic.trim().length > 0 && !isGenerating;
+  // 教材章节可替代手填主题
+  const effectiveTopic = topic.trim() || textbookChapter.trim();
+  const canSubmit = effectiveTopic.length > 0 && !isGenerating;
 
   // 20 题软限制弹窗
   const [showLimitModal, setShowLimitModal] = useState(false);
@@ -100,7 +113,7 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       return;
     }
     onGenerate({
-      topic: topic.trim(),
+      topic: effectiveTopic,
       subject,
       module: activeModule,
       difficulty,
@@ -109,13 +122,17 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       ...(customEnabled && customDescription.trim()
         ? { customQuestion: { enabled: true, description: customDescription.trim(), count: customCount } }
         : {}),
+      textbookVersion: textbookVersion || undefined,
+      gradeLevel: textbookGrade || undefined,
+      chapterName: textbookChapter.trim() || undefined,
+      textbookSubject: textbookSubject || undefined,
     });
   };
 
   const forceSubmit = () => {
     setShowLimitModal(false);
     onGenerate({
-      topic: topic.trim(),
+      topic: effectiveTopic,
       subject,
       module: activeModule,
       difficulty,
@@ -124,6 +141,10 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       ...(customEnabled && customDescription.trim()
         ? { customQuestion: { enabled: true, description: customDescription.trim(), count: customCount } }
         : {}),
+      textbookVersion: textbookVersion || undefined,
+      gradeLevel: textbookGrade || undefined,
+      chapterName: textbookChapter.trim() || undefined,
+      textbookSubject: textbookSubject || undefined,
     });
   };
 
@@ -142,6 +163,9 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
       action: "adapt_wrong_question",
       adaptWrongQuestion: adaptOriginalQuestion.trim(),
       adaptCount,
+      textbookVersion: textbookVersion || undefined,
+      gradeLevel: textbookGrade || undefined,
+      chapterName: textbookChapter.trim() || undefined,
     });
   };
 
@@ -172,6 +196,65 @@ export function InputPanel({ onGenerate, isGenerating, onStop }: Props) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* ── 教材大纲同步 ── */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+          📚 教材大纲同步
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <select
+            value={textbookSubject}
+            onChange={(e) => setTextbookSubject(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+          >
+            <option value="">科目（可选）</option>
+            {(Object.entries(SUBJECT_LABELS) as [Subject, string][]).map(([key, label]) => (
+              <option key={key} value={label}>{label}</option>
+            ))}
+          </select>
+          <select
+            value={textbookVersion}
+            onChange={(e) => setTextbookVersion(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+          >
+            <option value="">教材版本（可选）</option>
+            <option value="人教版">人教版</option>
+            <option value="北师大版">北师大版</option>
+            <option value="苏教版">苏教版</option>
+            <option value="粤教版">粤教版</option>
+            <option value="部编版">部编版</option>
+            <option value="沪教版">沪教版</option>
+            <option value="浙教版">浙教版</option>
+          </select>
+          <select
+            value={textbookGrade}
+            onChange={(e) => setTextbookGrade(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 text-gray-700"
+          >
+            <option value="">适用年级（可选）</option>
+            <option value="一年级上">一年级上</option><option value="一年级下">一年级下</option>
+            <option value="二年级上">二年级上</option><option value="二年级下">二年级下</option>
+            <option value="三年级上">三年级上</option><option value="三年级下">三年级下</option>
+            <option value="四年级上">四年级上</option><option value="四年级下">四年级下</option>
+            <option value="五年级上">五年级上</option><option value="五年级下">五年级下</option>
+            <option value="六年级上">六年级上</option><option value="六年级下">六年级下</option>
+            <option value="七年级上">七年级上</option><option value="七年级下">七年级下</option>
+            <option value="八年级上">八年级上</option><option value="八年级下">八年级下</option>
+            <option value="九年级上">九年级上</option><option value="九年级下">九年级下</option>
+            <option value="高一上">高一上</option><option value="高一下">高一下</option>
+            <option value="高二上">高二上</option><option value="高二下">高二下</option>
+            <option value="高三上">高三上</option><option value="高三下">高三下</option>
+          </select>
+        </div>
+        <input
+          type="text"
+          value={textbookChapter}
+          onChange={(e) => setTextbookChapter(e.target.value)}
+          placeholder="输入具体章节，如：第三章 3.1.1 一元一次方程的概念"
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:border-primary-400 focus:ring-1 focus:ring-primary-400 placeholder:text-gray-400 text-gray-700"
+        />
       </div>
 
       {/* ── Module Tabs ── */}

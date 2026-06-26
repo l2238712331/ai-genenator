@@ -40,6 +40,7 @@ function buildPrompt(
   topic: string, subject: Subject, module: ModuleTab,
   difficulty: Difficulty, grade: GradeLevel, questionConfigs: QuestionTypeConfig[],
   customQuestion?: { enabled: boolean; description: string; count: number },
+  textbookVersion?: string, gradeLevel?: string, chapterName?: string, textbookSubject?: string,
 ): string {
   const subjectName = SUBJECT_LABELS[subject];
   const gradeName = GRADE_LABELS[grade];
@@ -50,6 +51,13 @@ function buildPrompt(
     .map((q) => `${q.label} × ${q.count}题`)
     .join("、");
   const totalQ = questionConfigs.reduce((s, q) => s + q.count, 0);
+
+  // ══════════════════════════════════════════════
+  // 教材大纲锁死约束
+  // ══════════════════════════════════════════════
+  const textbookLock = textbookSubject || textbookVersion || gradeLevel || chapterName
+    ? `\n\n🚨 终极硬性约束：必须严格对应国内官方教材大纲 🚨\n\n注意：你当前正在为一门正式的课堂教学生成资料。你必须严格基于以下教材标准：\n- 指定教材科目：${textbookSubject || "通用学科"}\n- 指定教材版本：${textbookVersion || "通用版"}\n- 目标适用学段：${gradeLevel || "通用年级"}\n- 核心限定章节：${chapterName || "未指定特定章节"}\n\n请你立刻在你的底层知识库中，精准调取对应教材版本的【国家课程标准、教学大纲要求、该章节的知识点深度】。\n1. 严禁超纲：生成的题目和教案中，绝对不能出现该年级、该章节之后才会学到的公式、定理、词汇、句型或语法。\n2. 针对性：教案重难点必须高度契合该版教材的课后思考题要求；测试题和试卷的难度、出题风格必须完美模仿该教材对应的期中/期末正式真题。`
+    : "";
 
   // ══════════════════════════════════════════════
   // 最高防御指令
@@ -64,7 +72,7 @@ function buildPrompt(
   // 模块一：实操讲义教案
   // ══════════════════════════════════════════════
   if (module === "lesson_plan") {
-    return `你是资深K12${subjectName}教师。请为"${topic}"生成一份纯文本教案（禁止 JSON），直接输出 Markdown。
+    return `你是资深K12${subjectName}教师。${textbookLock}请为"${topic}"生成一份纯文本教案（禁止 JSON），直接输出 Markdown。
 
 ${antiLazy}
 
@@ -163,7 +171,7 @@ ${antiLazy}
   // 模块二：随堂测试与作业
   // ══════════════════════════════════════════════
   if (module === "quiz_homework") {
-    return `你是资深K12${subjectName}出题教师。请为"${topic}"生成${totalQ}道随堂测试题。
+    return `你是资深K12${subjectName}出题教师。${textbookLock}请为"${topic}"生成${totalQ}道随堂测试题。
 
 ${antiLazy}
 
@@ -236,7 +244,7 @@ ${customQuestion?.enabled && customQuestion.description
   // ══════════════════════════════════════════════
   // 模块三：弹性定制试卷
   // ══════════════════════════════════════════════
-  return `你是资深K12${subjectName}命题教师。请为"${topic}"生成一份正式的标准化试卷。
+  return `你是资深K12${subjectName}命题教师。${textbookLock}请为"${topic}"生成一份正式的标准化试卷。
 
 ${antiLazy}
 
@@ -321,13 +329,18 @@ ${customQuestion?.enabled && customQuestion.description
 function buildAdaptWrongQuestionPrompt(
   originalQuestion: string, subject: Subject,
   difficulty: Difficulty, grade: GradeLevel, count: number,
+  textbookVersion?: string, gradeLevelTxt?: string, chapterName?: string,
 ): string {
   const subjectName = SUBJECT_LABELS[subject];
   const gradeName = GRADE_LABELS[grade];
   const diffName = DIFF_LABELS[difficulty];
   const subjectHint = SUBJECT_HINTS[subject] || "";
 
-  return `你是资深K12${subjectName}金牌出题官，同时也是历年真题命题分析专家。你擅长通过分析一道错题或真题，快速生成同考点、同难度的变式训练题。
+  const textbookLock = textbookVersion || gradeLevelTxt || chapterName
+    ? `\n## 📚 教材大纲强制锁定\n- 教材版本：${textbookVersion || "不限"}\n- 适用年级/册别：${gradeLevelTxt || "不限"}\n- 核心章节/考点：${chapterName || "不限"}\n\n⚠️ 你生成的变式题必须严格匹配上述教材版本的知识范围和难度标准，禁止超纲。\n`
+    : "";
+
+  return `你是资深K12${subjectName}金牌出题官，同时也是历年真题命题分析专家。你擅长通过分析一道错题或真题，快速生成同考点、同难度的变式训练题。${textbookLock}
 
 # ⚡ 任务：举一反三 — 错题/真题变式改编
 
@@ -417,11 +430,20 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "无效请求体" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent, adaptWrongQuestion, adaptCount } = body as Record<string, unknown>;
+  const { topic, subject, module: mod, difficulty, grade, questionConfigs = [], customQuestion, action = "generate", previousContent, adaptWrongQuestion, adaptCount, textbookVersion, gradeLevel, chapterName, textbookSubject } = body as Record<string, unknown>;
 
-  if (!topic || !subject || !mod || !difficulty || !grade) {
+  if (!subject || !mod || !difficulty || !grade) {
     return new Response(JSON.stringify({ error: "缺少必要参数" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
+
+  // topic 可为空（教材章节可替代），但至少需要 topic 或教材信息之一
+  const hasTextbook = !!(textbookVersion || gradeLevel || chapterName || textbookSubject);
+  if (!topic && !hasTextbook && action !== "adapt_wrong_question") {
+    return new Response(JSON.stringify({ error: "请填写知识点主题或选择教材章节" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+
+  // topic 为空时用教材章节填充
+  const effectiveTopic = (topic as string)?.trim() || (chapterName as string)?.trim() || (textbookSubject as string)?.trim() || "教学内容";
 
   let systemPrompt: string;
   let userPrompt: string;
@@ -439,16 +461,23 @@ export async function POST(request: NextRequest) {
     systemPrompt = buildAdaptWrongQuestionPrompt(
       adaptWrongQuestion as string, subject as Subject,
       difficulty as Difficulty, grade as GradeLevel, (adaptCount as number) || 1,
+      textbookVersion as string | undefined,
+      gradeLevel as string | undefined,
+      chapterName as string | undefined,
     );
     userPrompt = "请基于上述原题，按格式要求生成变式训练题。输出纯 Markdown，不要输出 JSON。";
   } else {
     systemPrompt = buildPrompt(
-      topic as string, subject as Subject, mod as ModuleTab,
+      effectiveTopic, subject as Subject, mod as ModuleTab,
       difficulty as Difficulty, grade as GradeLevel,
       (questionConfigs as QuestionTypeConfig[]) || [],
       customQuestion as { enabled: boolean; description: string; count: number } | undefined,
+      textbookVersion as string | undefined,
+      gradeLevel as string | undefined,
+      chapterName as string | undefined,
+      textbookSubject as string | undefined,
     );
-    userPrompt = `请为【${SUBJECT_LABELS[subject as string]}·${topic}】生成内容。按上述格式输出纯 Markdown，不要输出 JSON。`;
+    userPrompt = `请为【${SUBJECT_LABELS[subject as string]}·${effectiveTopic}】生成内容。${hasTextbook ? `\n\n再次确认：你生成的内容必须严格限定在${textbookSubject || ""} ${textbookVersion || ""} ${gradeLevel || ""} ${chapterName || ""}的范围内。` : ""}\n\n按上述格式输出纯 Markdown，不要输出 JSON。`;
   }
 
   console.log(`[API/chat] subject=${subject} module=${mod} action=${action}`);
@@ -466,7 +495,7 @@ export async function POST(request: NextRequest) {
         const res = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 8192, temperature: 0.8, stream: true }),
+          body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], max_tokens: 16384, temperature: 0.8, stream: true }),
           signal: AbortSignal.timeout(120000),
         });
 

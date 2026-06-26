@@ -35,6 +35,10 @@ async function callChatAPI(
       previousContent: data.previousContent || undefined,
       adaptWrongQuestion: data.adaptWrongQuestion || undefined,
       adaptCount: data.adaptCount || undefined,
+      textbookVersion: data.textbookVersion || undefined,
+      gradeLevel: data.gradeLevel || undefined,
+      chapterName: data.chapterName || undefined,
+      textbookSubject: data.textbookSubject || undefined,
     }),
     signal: options?.signal,
   });
